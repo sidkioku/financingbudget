@@ -1,11 +1,14 @@
-const CACHE_NAME = 'finanzplan-v2';
+const CACHE_NAME = 'finanzplan-v3';
 const ASSETS = [
   './',
   './index.html',
   './styles.css',
   './app.js',
   './manifest.webmanifest',
-  './icon.svg'
+  './icon.svg',
+  './apple-touch-icon.png',
+  './icon-192.png',
+  './icon-512.png'
 ];
 
 self.addEventListener('install', (event) => {
