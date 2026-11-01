@@ -66,15 +66,37 @@ function parseFlexibleAmount(raw) {
   return Number.isFinite(num) ? Math.round(num * 100) / 100 : NaN;
 }
 
+function getCycleStartDay() {
+  const d = Number(state?.settings?.salaryDay);
+  return d >= 1 && d <= 28 ? d : 20;
+}
+
+function getCycleBounds(monthKey) {
+  const [y, m] = monthKey.split('-').map(Number);
+  const startDay = getCycleStartDay();
+  const start = new Date(y, m - 1, startDay, 0, 0, 0, 0);
+  const end = new Date(y, m, startDay - 1, 23, 59, 59, 999);
+  const nextStart = new Date(y, m, startDay, 0, 0, 0, 0);
+  return { start, end, nextStart, startDay };
+}
+
 function getTodayMonthKey() {
   const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const startDay = 20;
+  // If today is before the 20th, we are in the cycle that started on the 20th of the previous month
+  const ref = now.getDate() < startDay
+    ? new Date(now.getFullYear(), now.getMonth() - 1, 1)
+    : new Date(now.getFullYear(), now.getMonth(), 1);
+  return `${ref.getFullYear()}-${String(ref.getMonth() + 1).padStart(2, '0')}`;
 }
 
 function formatMonthLabel(monthKey) {
-  const [y, m] = monthKey.split('-').map(Number);
-  const date = new Date(y, m - 1, 1);
-  return new Intl.DateTimeFormat('de-DE', { month: 'long', year: 'numeric' }).format(date);
+  const { start, nextStart, startDay } = getCycleBounds(monthKey);
+  const fmtShort = new Intl.DateTimeFormat('de-DE', { month: 'short' });
+  const m1 = fmtShort.format(start);
+  const m2 = fmtShort.format(nextStart);
+  const y2 = nextStart.getFullYear();
+  return `${startDay}. ${m1} – ${startDay}. ${m2} ${y2}`;
 }
 
 function shiftMonthKey(monthKey, delta) {
@@ -84,13 +106,15 @@ function shiftMonthKey(monthKey, delta) {
 }
 
 function getDaysRemainingInMonth(monthKey) {
-  const [y, m] = monthKey.split('-').map(Number);
-  const totalDays = new Date(y, m, 0).getDate();
+  const { start, end } = getCycleBounds(monthKey);
+  const totalDays = Math.max(1, Math.round((end - start) / 86400000));
   const todayKey = getTodayMonthKey();
   if (monthKey < todayKey) return 1;
   if (monthKey > todayKey) return totalDays;
-  const todayDate = new Date().getDate();
-  return Math.max(1, totalDays - todayDate + 1);
+  const now = new Date();
+  const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const endMidnight = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+  return Math.max(1, Math.round((endMidnight - todayMidnight) / 86400000) + 1);
 }
 
 function createInitialState() {
@@ -98,7 +122,7 @@ function createInitialState() {
     updatedAt: Date.now(),
     settings: {
       baseSalary: 2500.00,
-      salaryDay: 28,
+      salaryDay: 20,
       creditCardDay: 28
     },
     fixedBills: DEFAULT_FIXED_BILLS,
@@ -184,7 +208,25 @@ function resolveBillingDay(dayLabel) {
 }
 
 /**
- * Determines whether a fixed bill is considered Paid ("Bezahlt?") in the given month
+ * Computes the exact calendar Date when a fixed bill is due within the 20. -> 19. cycle
+ * Cycle `YYYY-MM` runs from 20.MM.YYYY through 19.(MM+1).YYYY.
+ * Bills with billingDay >= 20 fall in month MM; bills with billingDay < 20 fall in month MM+1.
+ */
+function getBillDueDateInCycle(bill, monthKey) {
+  const billingDay = resolveBillingDay(bill.dayLabel);
+  if (!billingDay) return null;
+  const [y, m] = monthKey.split('-').map(Number);
+  const startDay = getCycleStartDay();
+  if (billingDay >= startDay) {
+    const maxDay = new Date(y, m, 0).getDate();
+    return new Date(y, m - 1, Math.min(billingDay, maxDay), 0, 0, 0, 0);
+  }
+  const maxDayNext = new Date(y, m + 1, 0).getDate();
+  return new Date(y, m, Math.min(billingDay, maxDayNext), 0, 0, 0, 0);
+}
+
+/**
+ * Determines whether a fixed bill is considered Paid ("Bezahlt?") in the given 20.->20. cycle
  */
 function isBillPaidInMonth(bill, monthKey) {
   const monthRec = ensureMonthRecord(monthKey);
@@ -195,14 +237,16 @@ function isBillPaidInMonth(bill, monthKey) {
   if (monthKey < todayKey) return true;
   if (monthKey > todayKey) return false;
 
-  const billingDay = resolveBillingDay(bill.dayLabel);
-  if (!billingDay) return false;
-  const currentDay = new Date().getDate();
-  return currentDay >= billingDay;
+  const dueDate = getBillDueDateInCycle(bill, monthKey);
+  if (!dueDate) return false;
+  const now = new Date();
+  const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+  return todayMidnight >= dueDate;
 }
 
 /**
- * Determines if base salary is already received in the given month
+ * Determines if base salary is already received in the given 20.->20. cycle.
+ * Since each cycle starts on payday (20.), salary is received from day 1 of the active cycle.
  */
 function isSalaryReceivedInMonth(monthKey) {
   const monthRec = ensureMonthRecord(monthKey);
@@ -210,10 +254,8 @@ function isSalaryReceivedInMonth(monthKey) {
     return Boolean(monthRec.salaryReceivedOverride);
   }
   const todayKey = getTodayMonthKey();
-  if (monthKey < todayKey) return true;
-  if (monthKey > todayKey) return false;
-  const currentDay = new Date().getDate();
-  return currentDay >= (state.settings.salaryDay || 28);
+  if (monthKey <= todayKey) return true;
+  return false;
 }
 
 function computeMonthMetrics(monthKey) {
@@ -333,14 +375,17 @@ function renderApp() {
   document.getElementById('kpiAnnualReserveMeta').textContent =
     `${formatEUR(m.annualTotal)}/Jahr ÷ 12 (inkl. 18,36 €/Mo GEZ in Fixkosten)`;
 
-  // Special Debit Notice Banner (Quarterly GEZ or Annual bills falling in activeMonthKey)
-  const monthNum = Number(activeMonthKey.split('-')[1]);
+  // Special Debit Notice Banner (Quarterly GEZ or Annual bills falling in active 20.->20. cycle)
+  const { start: cycStart, end: cycEnd } = getCycleBounds(activeMonthKey);
+  const startMonthNum = cycStart.getMonth() + 1;
+  const endMonthNum = cycEnd.getMonth() + 1;
   const dueNotices = [];
-  if ([1, 4, 7, 10].includes(monthNum)) {
-    dueNotices.push('Rundfunkbeitrag Quartalsabbuchung (55,08 € am 15.)');
+  // GEZ is debited on the 15th of Jan/Apr/Jul/Oct, which falls in the second half (endMonthNum) of a 20.->19. cycle
+  if ([1, 4, 7, 10].includes(endMonthNum)) {
+    dueNotices.push(`Rundfunkbeitrag Quartalsabbuchung (55,08 € am 15.${String(endMonthNum).padStart(2, '0')}.)`);
   }
   for (const ann of state.annualBills) {
-    if (ann.month === monthNum) {
+    if (ann.month === startMonthNum || ann.month === endMonthNum) {
       dueNotices.push(`${ann.name} (${formatEUR(ann.amount)} — ${ann.dateLabel})`);
     }
   }
@@ -348,7 +393,7 @@ function renderApp() {
   if (dueNotices.length > 0) {
     bannerEl.hidden = false;
     document.getElementById('specialDebitText').innerHTML =
-      `<strong>📌 Hinweis für ${formatMonthLabel(activeMonthKey)}:</strong> Tatsächliche Abbuchung aus deiner Rücklage diesen Monat: ${dueNotices.join(' • ')}`;
+      `<strong>📌 Hinweis für Zyklus ${formatMonthLabel(activeMonthKey)}:</strong> Tatsächliche Abbuchung aus deiner Rücklage: ${dueNotices.join(' • ')}`;
   } else {
     bannerEl.hidden = true;
   }
@@ -432,10 +477,13 @@ function renderApp() {
   // Fixed Bills Table (Monatliche_Ausgaben.numbers)
   const fixedTbody = document.getElementById('fixedBillsTbody');
   fixedTbody.innerHTML = '';
+  const dueFmt = new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit' });
   for (const bill of state.fixedBills) {
     const paid = isBillPaidInMonth(bill, activeMonthKey);
     const rest = paid ? 0 : bill.amount;
     const hasManualOverride = Object.prototype.hasOwnProperty.call(monthRec.paidOverrides, bill.id);
+    const dueDate = getBillDueDateInCycle(bill, activeMonthKey);
+    const dueStr = dueDate ? `${dueFmt.format(dueDate)}.` : '';
     const tr = document.createElement('tr');
     if (paid) tr.classList.add('row-paid');
     const chkId = `chk-bill-${bill.id}`;
@@ -452,7 +500,10 @@ function renderApp() {
       </td>
       <td class="num-col">${formatEUR(bill.amount)}</td>
       <td class="num-col" style="font-weight: ${rest > 0 ? '700' : '400'};">${formatEUR(rest)}</td>
-      <td>${escapeHtml(bill.dayLabel || '—')}</td>
+      <td>
+        ${escapeHtml(bill.dayLabel || '—')}
+        ${dueStr ? `<span class="badge" style="margin-inline-start:0.3rem;">${dueStr}</span>` : ''}
+      </td>
       <td class="num-col">
         <button type="button" class="btn btn-ghost btn-danger" data-del-fixed="${escapeHtml(bill.id)}" aria-label="${escapeHtml(bill.name)} löschen">&times;</button>
       </td>

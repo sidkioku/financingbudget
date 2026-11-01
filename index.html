@@ -28,10 +28,10 @@
       </div>
 
       <div class="topbar-controls">
-        <div class="month-nav" role="group" aria-label="Monatsauswahl">
-          <button type="button" id="prevMonthBtn" aria-label="Vorheriger Monat">&lsaquo;</button>
-          <span id="currentMonthLabel" class="month-label">November 2026</span>
-          <button type="button" id="nextMonthBtn" aria-label="Nächster Monat">&rsaquo;</button>
+        <div class="month-nav" role="group" aria-label="Zyklusauswahl (20. bis 20.)">
+          <button type="button" id="prevMonthBtn" aria-label="Vorheriger Zyklus">&lsaquo;</button>
+          <span id="currentMonthLabel" class="month-label">20. Okt – 20. Nov</span>
+          <button type="button" id="nextMonthBtn" aria-label="Nächster Zyklus">&rsaquo;</button>
         </div>
 
         <button type="button" id="openSyncBtn" class="sync-pill" title="Cloud-Sync &amp; Apple Pay Kurzbefehl">
@@ -42,13 +42,13 @@
     </header>
 
     <!-- Hero Grid: Safe-to-Spend + Instant Quick-Add -->
-    <section class="hero-grid" aria-label="Monatsübersicht und Schnelleingabe">
+    <section class="hero-grid" aria-label="Zyklusübersicht und Schnelleingabe">
       <div class="card hero-main">
         <div>
-          <p class="eyebrow">Frei verfügbar diesen Monat (nach allen Fixkosten)</p>
+          <p class="eyebrow">Frei verfügbar im aktuellen Zyklus (20. bis 20. &bull; nach Fixkosten)</p>
           <p id="safeToSpendValue" class="big-amount positive">0,00 &euro;</p>
           <div id="dailyAllowanceBadge" class="daily-allowance">
-            <span>Noch 0,00 &euro; / Tag für den Rest des Monats</span>
+            <span>Noch 0,00 &euro; / Tag bis zum nächsten 20.</span>
           </div>
         </div>
 
@@ -58,7 +58,7 @@
           </div>
           <div class="hero-submetrics">
             <div>
-              <span class="submetric-label">Einnahmen (Monat)</span>
+              <span class="submetric-label">Einnahmen (Zyklus)</span>
               <span id="heroIncomeTotal" class="submetric-val">0,00 &euro;</span>
             </div>
             <div>
