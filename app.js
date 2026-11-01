@@ -479,13 +479,10 @@ function renderApp() {
   // Fixed Bills Table (Monatliche_Ausgaben.numbers)
   const fixedTbody = document.getElementById('fixedBillsTbody');
   fixedTbody.innerHTML = '';
-  const dueFmt = new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit' });
   for (const bill of state.fixedBills) {
     const paid = isBillPaidInMonth(bill, activeMonthKey);
     const rest = paid ? 0 : bill.amount;
     const hasManualOverride = Object.prototype.hasOwnProperty.call(monthRec.paidOverrides, bill.id);
-    const dueDate = getBillDueDateInCycle(bill, activeMonthKey);
-    const dueStr = dueDate ? `${dueFmt.format(dueDate)}.` : '';
     const tr = document.createElement('tr');
     if (paid) tr.classList.add('row-paid');
     const chkId = `chk-bill-${bill.id}`;
@@ -502,10 +499,7 @@ function renderApp() {
       </td>
       <td class="num-col">${formatEUR(bill.amount)}</td>
       <td class="num-col" style="font-weight: ${rest > 0 ? '700' : '400'};">${formatEUR(rest)}</td>
-      <td>
-        ${escapeHtml(bill.dayLabel || '—')}
-        ${dueStr ? `<span class="badge" style="margin-inline-start:0.3rem;">${dueStr}</span>` : ''}
-      </td>
+      <td>${escapeHtml(bill.dayLabel || '—')}</td>
       <td class="num-col">
         <button type="button" class="btn btn-ghost btn-danger" data-del-fixed="${escapeHtml(bill.id)}" aria-label="${escapeHtml(bill.name)} löschen">&times;</button>
       </td>
