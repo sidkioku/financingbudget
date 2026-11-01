@@ -106,6 +106,77 @@ function shiftMonthKey(monthKey, delta) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
+function getCycleKeyForDate(date, startDay = getCycleStartDay()) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return getTodayMonthKey();
+  const ref = date.getDate() < startDay
+    ? new Date(date.getFullYear(), date.getMonth() - 1, 1)
+    : new Date(date.getFullYear(), date.getMonth(), 1);
+  return `${ref.getFullYear()}-${String(ref.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function parseGermanOrIsoDate(str) {
+  if (!str) return null;
+  const s = String(str).trim();
+  const deMatch = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+  if (deMatch) {
+    const d = Number(deMatch[1]);
+    const m = Number(deMatch[2]);
+    const y = Number(deMatch[3]);
+    return new Date(y, m - 1, d, 0, 0, 0, 0);
+  }
+  const isoMatch = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (isoMatch) {
+    const y = Number(isoMatch[1]);
+    const m = Number(isoMatch[2]);
+    const d = Number(isoMatch[3]);
+    return new Date(y, m - 1, d, 0, 0, 0, 0);
+  }
+  return null;
+}
+
+/**
+ * Ensures any expected one-off income with a date (e.g. "10.12.2026" or "20.12.2026")
+ * automatically lives in the 20.->20. cycle where that date actually falls.
+ */
+function normalizeExpectedIncomesAcrossCycles(stateObj) {
+  if (!stateObj || !stateObj.months) return stateObj;
+  const startDay = Number(stateObj?.settings?.salaryDay) || 20;
+  const toMove = [];
+
+  for (const [mk, monthRec] of Object.entries(stateObj.months)) {
+    if (!monthRec || !Array.isArray(monthRec.expectedIncomes)) continue;
+    const stay = [];
+    for (const inc of monthRec.expectedIncomes) {
+      const parsedDate = parseGermanOrIsoDate(inc.rawDate || inc.dateLabel);
+      if (parsedDate) {
+        const targetKey = getCycleKeyForDate(parsedDate, startDay);
+        if (targetKey !== mk) {
+          toMove.push({ targetKey, inc });
+          continue;
+        }
+      }
+      stay.push(inc);
+    }
+    monthRec.expectedIncomes = stay;
+  }
+
+  for (const { targetKey, inc } of toMove) {
+    if (!stateObj.months[targetKey]) {
+      stateObj.months[targetKey] = {
+        expenses: [],
+        expectedIncomes: [],
+        paidOverrides: {},
+        salaryReceivedOverride: null
+      };
+    }
+    const targetList = stateObj.months[targetKey].expectedIncomes;
+    if (!targetList.some((x) => x.id === inc.id)) {
+      targetList.push(inc);
+    }
+  }
+  return stateObj;
+}
+
 function getDaysRemainingInMonth(monthKey) {
   const { start, end } = getCycleBounds(monthKey);
   const totalDays = Math.max(1, Math.round((end - start) / 86400000));
@@ -138,7 +209,7 @@ function loadState() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return createInitialState();
     const parsed = JSON.parse(raw);
-    return {
+    return normalizeExpectedIncomesAcrossCycles({
       ...createInitialState(),
       ...parsed,
       deletedIds: Array.isArray(parsed.deletedIds) ? parsed.deletedIds : [],
@@ -146,7 +217,7 @@ function loadState() {
       fixedBills: Array.isArray(parsed.fixedBills) ? parsed.fixedBills : DEFAULT_FIXED_BILLS,
       annualBills: Array.isArray(parsed.annualBills) ? parsed.annualBills : DEFAULT_ANNUAL_BILLS,
       months: parsed.months || {}
-    };
+    });
   } catch {
     return createInitialState();
   }
@@ -185,6 +256,7 @@ function ensureMonthRecord(monthKey) {
 }
 
 function saveState(triggerCloudSync = true) {
+  normalizeExpectedIncomesAcrossCycles(state);
   state.updatedAt = Date.now();
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   renderApp();
@@ -806,7 +878,7 @@ function mergeStates(localState, remoteState) {
     };
   }
 
-  return {
+  return normalizeExpectedIncomesAcrossCycles({
     ...createInitialState(),
     ...newer,
     updatedAt: Math.max(localTs, remoteTs),
@@ -823,7 +895,7 @@ function mergeStates(localState, remoteState) {
       (b) => !deletedSet.has(b.id)
     ),
     months: mergedMonths
-  };
+  });
 }
 
 /**
@@ -1202,21 +1274,24 @@ function bindEvents() {
       showToast('Bitte Betrag und Beschreibung eingeben.');
       return;
     }
-    const dateLabel = rawDate
-      ? new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(rawDate))
-      : 'diesen Monat';
-    const monthRec = ensureMonthRecord(activeMonthKey);
+    const parsedDate = parseGermanOrIsoDate(rawDate);
+    const dateLabel = parsedDate
+      ? new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(parsedDate)
+      : 'diesen Zyklus';
+    const targetMonthKey = parsedDate ? getCycleKeyForDate(parsedDate) : activeMonthKey;
+    const monthRec = ensureMonthRecord(targetMonthKey);
     monthRec.expectedIncomes.push({
       id: `inc-${Date.now()}`,
       title,
       amount: amt,
+      rawDate: rawDate || null,
       dateLabel,
       received: false
     });
     document.getElementById('expectedAmountInput').value = '';
     document.getElementById('expectedTitleInput').value = '';
     saveState(true);
-    showToast(`✓ Erwartete Einnahme (+${formatEUR(amt)}) hinzugefügt`);
+    showToast(`✓ +${formatEUR(amt)} im Zyklus ${formatMonthLabel(targetMonthKey)} gespeichert`);
   });
 
   // Modal 3: Add Fixed or Annual Bill
