@@ -82,9 +82,10 @@ function getCycleBounds(monthKey) {
 
 function getTodayMonthKey() {
   const now = new Date();
-  const startDay = 20;
-  // If today is before the 20th, we are in the cycle that started on the 20th of the previous month
-  const ref = now.getDate() < startDay
+  const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+  // Check if this month's salary (20th, or previous business day if 20th is Sa/So/Feiertag) has arrived
+  const thisMonthSalary = getEffectiveSalaryDate(now.getFullYear(), now.getMonth() + 1);
+  const ref = todayMidnight < thisMonthSalary.effective
     ? new Date(now.getFullYear(), now.getMonth() - 1, 1)
     : new Date(now.getFullYear(), now.getMonth(), 1);
   return `${ref.getFullYear()}-${String(ref.getMonth() + 1).padStart(2, '0')}`;
@@ -210,25 +211,133 @@ function resolveBillingDay(dayLabel) {
 }
 
 /**
- * Computes the exact calendar Date when a fixed bill is due within the 20. -> 19. cycle
- * Cycle `YYYY-MM` runs from 20.MM.YYYY through 19.(MM+1).YYYY.
- * Bills with billingDay >= 20 fall in month MM; bills with billingDay < 20 fall in month MM+1.
+ * Checks whether a given Date falls on a weekend (Sa/So) or a German bank holiday (TARGET2 / BW)
  */
-function getBillDueDateInCycle(bill, monthKey) {
+function getEasterSunday(year) {
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31);
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(year, month - 1, day, 0, 0, 0, 0);
+}
+
+function addDays(date, days) {
+  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+  d.setDate(d.getDate() + days);
+  return d;
+}
+
+function isSameCalendarDay(a, b) {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+function isBankHolidayOrWeekend(date) {
+  const dow = date.getDay();
+  if (dow === 0 || dow === 6) return true; // Sunday or Saturday
+
+  const y = date.getFullYear();
+  const m = date.getMonth() + 1;
+  const d = date.getDate();
+
+  // Fixed German / TARGET2 / BW bank holidays
+  if (
+    (m === 1 && d === 1) ||   // Neujahr
+    (m === 1 && d === 6) ||   // Heilige Drei Könige (BW)
+    (m === 5 && d === 1) ||   // Tag der Arbeit
+    (m === 10 && d === 3) ||  // Tag der Deutschen Einheit
+    (m === 11 && d === 1) ||  // Allerheiligen (BW)
+    (m === 12 && (d === 24 || d === 25 || d === 26 || d === 31)) // Weihnachten & Bankfeiertage
+  ) {
+    return true;
+  }
+
+  // Moveable Easter-based holidays (Karfreitag, Ostermontag, Christi Himmelfahrt, Pfingstmontag, Fronleichnam)
+  const easter = getEasterSunday(y);
+  const movableOffsets = [-2, 1, 39, 50, 60];
+  for (const offset of movableOffsets) {
+    if (isSameCalendarDay(date, addDays(easter, offset))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * SEPA-Lastschriften / Daueraufträge: shift weekend/holiday forward to next banking day
+ */
+function shiftToNextBusinessDay(date) {
+  let cur = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+  while (isBankHolidayOrWeekend(cur)) {
+    cur = addDays(cur, 1);
+  }
+  return cur;
+}
+
+/**
+ * Gehalt (Salary): shift weekend/holiday backward to previous banking day (e.g. Friday before weekend 20th)
+ */
+function shiftToPreviousBusinessDay(date) {
+  let cur = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+  while (isBankHolidayOrWeekend(cur)) {
+    cur = addDays(cur, -1);
+  }
+  return cur;
+}
+
+function getEffectiveSalaryDate(year, monthOneBased) {
+  const startDay = getCycleStartDay();
+  const maxDay = new Date(year, monthOneBased, 0).getDate();
+  const nominal = new Date(year, monthOneBased - 1, Math.min(startDay, maxDay), 0, 0, 0, 0);
+  const effective = shiftToPreviousBusinessDay(nominal);
+  return { nominal, effective, shifted: !isSameCalendarDay(nominal, effective) };
+}
+
+/**
+ * Computes both nominal and effective (Werktag-adjusted) due dates for a bill within the 20. -> 20. cycle
+ */
+function getBillScheduleInCycle(bill, monthKey) {
   const billingDay = resolveBillingDay(bill.dayLabel);
   if (!billingDay) return null;
   const [y, m] = monthKey.split('-').map(Number);
   const startDay = getCycleStartDay();
+  let nominalDate;
   if (billingDay >= startDay) {
     const maxDay = new Date(y, m, 0).getDate();
-    return new Date(y, m - 1, Math.min(billingDay, maxDay), 0, 0, 0, 0);
+    nominalDate = new Date(y, m - 1, Math.min(billingDay, maxDay), 0, 0, 0, 0);
+  } else {
+    const maxDayNext = new Date(y, m + 1, 0).getDate();
+    nominalDate = new Date(y, m, Math.min(billingDay, maxDayNext), 0, 0, 0, 0);
   }
-  const maxDayNext = new Date(y, m + 1, 0).getDate();
-  return new Date(y, m, Math.min(billingDay, maxDayNext), 0, 0, 0, 0);
+  const effectiveDate = shiftToNextBusinessDay(nominalDate);
+  return {
+    nominalDate,
+    effectiveDate,
+    shifted: !isSameCalendarDay(nominalDate, effectiveDate)
+  };
+}
+
+function getBillDueDateInCycle(bill, monthKey) {
+  const sched = getBillScheduleInCycle(bill, monthKey);
+  return sched ? sched.effectiveDate : null;
 }
 
 /**
  * Determines whether a fixed bill is considered Paid ("Bezahlt?") in the given 20.->20. cycle
+ * Uses the Werktag-adjusted effectiveDate so weekend bills stay "Offen" until Monday.
  */
 function isBillPaidInMonth(bill, monthKey) {
   const monthRec = ensureMonthRecord(monthKey);
@@ -239,11 +348,11 @@ function isBillPaidInMonth(bill, monthKey) {
   if (monthKey < todayKey) return true;
   if (monthKey > todayKey) return false;
 
-  const dueDate = getBillDueDateInCycle(bill, monthKey);
-  if (!dueDate) return false;
+  const sched = getBillScheduleInCycle(bill, monthKey);
+  if (!sched) return false;
   const now = new Date();
   const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-  return todayMidnight >= dueDate;
+  return todayMidnight >= sched.effectiveDate;
 }
 
 /**
@@ -438,6 +547,12 @@ function renderApp() {
   incListEl.innerHTML = '';
 
   // Row 1: Fixed Monthly Base Salary
+  const [cycY, cycM] = activeMonthKey.split('-').map(Number);
+  const salSched = getEffectiveSalaryDate(cycY, cycM);
+  const wdFmt = new Intl.DateTimeFormat('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' });
+  const salShiftHint = salSched.shifted
+    ? ` (Werktag vorab: ${wdFmt.format(salSched.effective)})`
+    : '';
   const salLi = document.createElement('li');
   salLi.className = 'item-row';
   const salChecked = m.salaryReceived ? 'checked' : '';
@@ -446,7 +561,7 @@ function renderApp() {
       <input type="checkbox" class="checkbox-custom" id="toggleSalaryReceivedChk" ${salChecked}>
       <span>
         <span class="item-title" style="display:block;">Monatliches Gehalt / Haupt-Einkommen</span>
-        <span class="item-sub">Zahltag: ${state.settings.salaryDay}. des Monats &bull; ${m.salaryReceived ? 'Bereits eingegangen ✓' : 'Wird erwartet'}</span>
+        <span class="item-sub">Zahltag: ${state.settings.salaryDay}.${salShiftHint} &bull; ${m.salaryReceived ? 'Bereits eingegangen ✓' : 'Wird erwartet'}</span>
       </span>
     </label>
     <div style="display: flex; align-items: center; gap: 0.4rem;">
@@ -480,18 +595,22 @@ function renderApp() {
   const fixedTbody = document.getElementById('fixedBillsTbody');
   fixedTbody.innerHTML = '';
   const sortedFixedBills = [...state.fixedBills].sort((a, b) => {
-    const dA = getBillDueDateInCycle(a, activeMonthKey);
-    const dB = getBillDueDateInCycle(b, activeMonthKey);
-    if (!dA && !dB) return 0;
-    if (!dA) return 1;
-    if (!dB) return -1;
-    return dA.getTime() - dB.getTime();
+    const sA = getBillScheduleInCycle(a, activeMonthKey);
+    const sB = getBillScheduleInCycle(b, activeMonthKey);
+    if (!sA && !sB) return 0;
+    if (!sA) return 1;
+    if (!sB) return -1;
+    return sA.nominalDate.getTime() - sB.nominalDate.getTime();
   });
 
   for (const bill of sortedFixedBills) {
     const paid = isBillPaidInMonth(bill, activeMonthKey);
     const rest = paid ? 0 : bill.amount;
     const hasManualOverride = Object.prototype.hasOwnProperty.call(monthRec.paidOverrides, bill.id);
+    const sched = getBillScheduleInCycle(bill, activeMonthKey);
+    const shiftBadge = sched && sched.shifted
+      ? `<span class="badge" style="margin-inline-start:0.35rem;" title="Wegen Wochenende/Feiertag nächster Bankarbeitstag">⏳ ${wdFmt.format(sched.effectiveDate)}</span>`
+      : '';
     const tr = document.createElement('tr');
     if (paid) tr.classList.add('row-paid');
     const chkId = `chk-bill-${bill.id}`;
@@ -508,7 +627,7 @@ function renderApp() {
       </td>
       <td class="num-col">${formatEUR(bill.amount)}</td>
       <td class="num-col" style="font-weight: ${rest > 0 ? '700' : '400'};">${formatEUR(rest)}</td>
-      <td>${escapeHtml(bill.dayLabel || '—')}</td>
+      <td>${escapeHtml(bill.dayLabel || '—')}${shiftBadge}</td>
       <td class="num-col">
         <button type="button" class="btn btn-ghost btn-danger" data-del-fixed="${escapeHtml(bill.id)}" aria-label="${escapeHtml(bill.name)} löschen">&times;</button>
       </td>
