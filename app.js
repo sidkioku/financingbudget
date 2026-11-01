@@ -394,12 +394,15 @@ function computeMonthMetrics(monthKey) {
   const baseSalary = Number(state.settings.baseSalary) || 0;
   const salaryReceived = isSalaryReceivedInMonth(monthKey);
 
-  const extraIncomesTotal = monthRec.expectedIncomes.reduce((acc, inc) => acc + inc.amount, 0);
+  const extraIncomesReceived = monthRec.expectedIncomes
+    .filter((inc) => inc.received)
+    .reduce((acc, inc) => acc + inc.amount, 0);
   const extraIncomesPending = monthRec.expectedIncomes
     .filter((inc) => !inc.received)
     .reduce((acc, inc) => acc + inc.amount, 0);
 
-  const totalMonthlyIncome = baseSalary + extraIncomesTotal;
+  // Only count baseSalary + actually received extra incomes in the cycle's disposable budget
+  const totalMonthlyIncome = baseSalary + extraIncomesReceived;
   const freeBudgetTotal = totalMonthlyIncome - fixedBaselineWithReserve;
   const safeToSpend = freeBudgetTotal - variableSpent;
   const totalUsedThisMonth = fixedPaidSoFar + variableSpent;
@@ -417,7 +420,7 @@ function computeMonthMetrics(monthKey) {
     variableSpent,
     baseSalary,
     salaryReceived,
-    extraIncomesTotal,
+    extraIncomesTotal: extraIncomesReceived,
     extraIncomesPending,
     pendingIncomeTotal,
     totalMonthlyIncome,
@@ -1132,9 +1135,10 @@ function bindEvents() {
   const reconcileDialog = document.getElementById('reconcileDialog');
   document.getElementById('openReconcileBtn').addEventListener('click', () => {
     const m = computeMonthMetrics(activeMonthKey);
-    const expectedAccountCash = m.totalMonthlyIncome - m.pendingIncomeTotal - m.fixedPaidSoFar - m.variableSpent;
+    const receivedCashSoFar = (m.salaryReceived ? m.baseSalary : 0) + m.extraIncomesTotal;
+    const expectedAccountCash = receivedCashSoFar - m.fixedPaidSoFar - m.variableSpent;
     document.getElementById('reconcilePreviewText').textContent =
-      `Rechnerischer Soll-Stand (aus Einnahmen abzgl. bisher bezahlter Fixkosten & Ausgaben): ${formatEUR(expectedAccountCash)}`;
+      `Rechnerischer Soll-Stand (aus eingegangenen Einnahmen abzgl. bisher bezahlter Fixkosten & Ausgaben): ${formatEUR(expectedAccountCash)}`;
     document.getElementById('actualBankBalanceInput').value = '';
     document.getElementById('lumpSumAmountInput').value = '';
     reconcileDialog.showModal();
@@ -1147,7 +1151,8 @@ function bindEvents() {
       return;
     }
     const m = computeMonthMetrics(activeMonthKey);
-    const expectedAccountCash = m.totalMonthlyIncome - m.pendingIncomeTotal - m.fixedPaidSoFar - m.variableSpent;
+    const receivedCashSoFar = (m.salaryReceived ? m.baseSalary : 0) + m.extraIncomesTotal;
+    const expectedAccountCash = receivedCashSoFar - m.fixedPaidSoFar - m.variableSpent;
     const diff = Math.round((expectedAccountCash - actual) * 100) / 100;
     if (diff <= 0) {
       showToast('Dein Kontostand ist höher oder gleich dem Soll-Stand — keine Nachbuchung nötig!');
