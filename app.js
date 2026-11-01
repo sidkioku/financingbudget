@@ -119,7 +119,8 @@ function getDaysRemainingInMonth(monthKey) {
 
 function createInitialState() {
   return {
-    updatedAt: Date.now(),
+    updatedAt: 0,
+    deletedIds: [],
     settings: {
       baseSalary: 2500.00,
       salaryDay: 20,
@@ -139,6 +140,7 @@ function loadState() {
     return {
       ...createInitialState(),
       ...parsed,
+      deletedIds: Array.isArray(parsed.deletedIds) ? parsed.deletedIds : [],
       settings: { ...createInitialState().settings, ...(parsed.settings || {}) },
       fixedBills: Array.isArray(parsed.fixedBills) ? parsed.fixedBills : DEFAULT_FIXED_BILLS,
       annualBills: Array.isArray(parsed.annualBills) ? parsed.annualBills : DEFAULT_ANNUAL_BILLS,
@@ -583,7 +585,7 @@ function addVariableExpense(amount, note, source = 'Manuell') {
 /**
  * Checks URL query parameters for Apple Pay Shortcut auto-entries or Gist magic setup links
  */
-function handleIncomingUrlParams() {
+async function handleIncomingUrlParams() {
   const url = new URL(window.location.href);
   const params = url.searchParams;
   const hashParams = new URLSearchParams(url.hash.replace(/^#/, ''));
@@ -598,8 +600,8 @@ function handleIncomingUrlParams() {
     url.searchParams.delete('gistToken');
     url.hash = '';
     window.history.replaceState({}, document.title, url.pathname + url.search);
-    showToast('☁️ Cloud-Sync erfolgreich eingerichtet!');
-    pullFromGist();
+    showToast('☁️ Cloud-Sync verbunden! Synchronisiere…');
+    await pullFromGist({ silent: false });
   }
 
   // 2. Check Apple Pay / Quick Add URL parameters (?add=12,50&merchant=Rewe)
@@ -616,6 +618,9 @@ function handleIncomingUrlParams() {
     window.history.replaceState({}, document.title, url.pathname + (url.search ? url.search : ''));
 
     if (Number.isFinite(amount) && amount > 0) {
+      if (syncConfig.gistId && syncConfig.gistToken) {
+        await pullFromGist({ silent: true });
+      }
       activeMonthKey = getTodayMonthKey();
       addVariableExpense(amount, merchant, 'Apple Pay');
       showToast(`✓ Apple Pay gebucht: ${formatEUR(amount)} (${merchant})`);
@@ -624,8 +629,83 @@ function handleIncomingUrlParams() {
 }
 
 /**
- * GitHub Gist Cloud Sync (100% Free across iPhone & Mac)
+ * Merges local and remote states without losing expenses/incomes added on either device
  */
+function mergeStates(localState, remoteState) {
+  if (!remoteState) return localState;
+  const localTs = Number(localState?.updatedAt) || 0;
+  const remoteTs = Number(remoteState?.updatedAt) || 0;
+  const newer = remoteTs >= localTs ? remoteState : localState;
+  const older = remoteTs >= localTs ? localState : remoteState;
+
+  const deletedSet = new Set([
+    ...(Array.isArray(localState?.deletedIds) ? localState.deletedIds : []),
+    ...(Array.isArray(remoteState?.deletedIds) ? remoteState.deletedIds : [])
+  ]);
+
+  const mergedMonths = {};
+  const allMonthKeys = new Set([
+    ...Object.keys(localState?.months || {}),
+    ...Object.keys(remoteState?.months || {})
+  ]);
+
+  for (const mk of allMonthKeys) {
+    const mOlder = (older?.months && older.months[mk]) || {};
+    const mNewer = (newer?.months && newer.months[mk]) || {};
+
+    // Union of expenses by id, excluding deletedIds
+    const expMap = new Map();
+    for (const e of [...(mOlder.expenses || []), ...(mNewer.expenses || [])]) {
+      if (e && e.id && !deletedSet.has(e.id)) {
+        expMap.set(e.id, e);
+      }
+    }
+
+    // Union of expectedIncomes by id, excluding deletedIds
+    const incMap = new Map();
+    for (const inc of [...(mOlder.expectedIncomes || []), ...(mNewer.expectedIncomes || [])]) {
+      if (inc && inc.id && !deletedSet.has(inc.id)) {
+        incMap.set(inc.id, inc);
+      }
+    }
+
+    mergedMonths[mk] = {
+      expenses: Array.from(expMap.values()).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0)),
+      expectedIncomes: Array.from(incMap.values()),
+      paidOverrides: { ...(mOlder.paidOverrides || {}), ...(mNewer.paidOverrides || {}) },
+      salaryReceivedOverride:
+        mNewer.salaryReceivedOverride !== null && mNewer.salaryReceivedOverride !== undefined
+          ? mNewer.salaryReceivedOverride
+          : (mOlder.salaryReceivedOverride ?? null)
+    };
+  }
+
+  return {
+    ...createInitialState(),
+    ...newer,
+    updatedAt: Math.max(localTs, remoteTs),
+    deletedIds: Array.from(deletedSet).slice(-500),
+    settings: {
+      ...createInitialState().settings,
+      ...(older?.settings || {}),
+      ...(newer?.settings || {})
+    },
+    fixedBills: (Array.isArray(newer?.fixedBills) ? newer.fixedBills : DEFAULT_FIXED_BILLS).filter(
+      (b) => !deletedSet.has(b.id)
+    ),
+    annualBills: (Array.isArray(newer?.annualBills) ? newer.annualBills : DEFAULT_ANNUAL_BILLS).filter(
+      (b) => !deletedSet.has(b.id)
+    ),
+    months: mergedMonths
+  };
+}
+
+/**
+ * GitHub Gist Cloud Sync (100% Free & Automatic across iPhone & Mac)
+ */
+let isSyncing = false;
+let pendingPush = false;
+
 function updateSyncIndicator(status, text) {
   const dot = document.getElementById('syncDot');
   const label = document.getElementById('syncStatusText');
@@ -635,14 +715,20 @@ function updateSyncIndicator(status, text) {
   label.textContent = text;
 }
 
-async function pullFromGist() {
+async function pullFromGist({ silent = false } = {}) {
   if (!syncConfig.gistId || !syncConfig.gistToken) {
     updateSyncIndicator('', 'Lokal gespeichert');
     return;
   }
-  updateSyncIndicator('syncing', 'Synchronisiere…');
+  if (isSyncing) return;
+  isSyncing = true;
+  if (!silent) updateSyncIndicator('syncing', 'Synchronisiere…');
+
   try {
-    const res = await fetch(`https://api.github.com/gists/${encodeURIComponent(syncConfig.gistId)}`, {
+    // Bypass browser HTTP cache with cache: 'no-store' and timestamp query param
+    const url = `https://api.github.com/gists/${encodeURIComponent(syncConfig.gistId)}?t=${Date.now()}`;
+    const res = await fetch(url, {
+      cache: 'no-store',
       headers: {
         Accept: 'application/vnd.github+json',
         Authorization: `Bearer ${syncConfig.gistToken}`
@@ -653,30 +739,68 @@ async function pullFromGist() {
     const file = data.files && data.files['finanzplan_state.json'];
     if (file && file.content) {
       const remoteState = JSON.parse(file.content);
-      if (remoteState && (!state.updatedAt || (remoteState.updatedAt || 0) >= (state.updatedAt || 0))) {
-        state = {
-          ...createInitialState(),
-          ...remoteState,
-          settings: { ...createInitialState().settings, ...(remoteState.settings || {}) }
-        };
+      const beforeJson = JSON.stringify(state);
+      const merged = mergeStates(state, remoteState);
+      const afterJson = JSON.stringify(merged);
+
+      if (beforeJson !== afterJson) {
+        state = merged;
         localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
         renderApp();
-      } else {
+      }
+
+      // If merged state has changes that remote didn't have yet, push merged state back
+      if (JSON.stringify(remoteState) !== afterJson && (state.updatedAt || 0) > 0) {
+        isSyncing = false;
         await pushToGist();
+        return;
       }
     }
-    updateSyncIndicator('synced', 'iPhone & Mac synchron');
+    updateSyncIndicator('synced', 'iPhone & Mac live synchron');
   } catch {
-    updateSyncIndicator('error', 'Offline / Lokal');
+    updateSyncIndicator('error', 'Sync-Fehler / Offline');
+  } finally {
+    isSyncing = false;
+    if (pendingPush) {
+      pendingPush = false;
+      pushToGist();
+    }
   }
 }
 
 async function pushToGist() {
   if (!syncConfig.gistId || !syncConfig.gistToken) return;
-  updateSyncIndicator('syncing', 'Speichere in Cloud…');
+  if (isSyncing) {
+    pendingPush = true;
+    return;
+  }
+  isSyncing = true;
+  updateSyncIndicator('syncing', 'Speichere live…');
+
   try {
+    // First pull latest to merge safely before patching
+    const getUrl = `https://api.github.com/gists/${encodeURIComponent(syncConfig.gistId)}?t=${Date.now()}`;
+    const getRes = await fetch(getUrl, {
+      cache: 'no-store',
+      headers: {
+        Accept: 'application/vnd.github+json',
+        Authorization: `Bearer ${syncConfig.gistToken}`
+      }
+    });
+    if (getRes.ok) {
+      const getData = await getRes.json();
+      const file = getData.files && getData.files['finanzplan_state.json'];
+      if (file && file.content) {
+        const remoteState = JSON.parse(file.content);
+        state = mergeStates(state, remoteState);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        renderApp();
+      }
+    }
+
     const res = await fetch(`https://api.github.com/gists/${encodeURIComponent(syncConfig.gistId)}`, {
       method: 'PATCH',
+      cache: 'no-store',
       headers: {
         Accept: 'application/vnd.github+json',
         Authorization: `Bearer ${syncConfig.gistToken}`,
@@ -692,10 +816,47 @@ async function pushToGist() {
       })
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    updateSyncIndicator('synced', 'iPhone & Mac synchron');
+    updateSyncIndicator('synced', 'iPhone & Mac live synchron');
   } catch {
-    updateSyncIndicator('error', 'Offline / Lokal');
+    updateSyncIndicator('error', 'Sync-Fehler / Offline');
+  } finally {
+    isSyncing = false;
+    if (pendingPush) {
+      pendingPush = false;
+      pushToGist();
+    }
   }
+}
+
+function startAutoSyncLoop() {
+  // Poll every 4 seconds while visible so open Mac & iPhone screens update live without reload
+  setInterval(() => {
+    if (document.visibilityState === 'visible' && syncConfig.gistId && syncConfig.gistToken) {
+      pullFromGist({ silent: true });
+    }
+  }, 4000);
+
+  // Sync immediately when switching back to the app on iPhone or focusing the window on Mac
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && syncConfig.gistId && syncConfig.gistToken) {
+      pullFromGist({ silent: true });
+    }
+  });
+  window.addEventListener('focus', () => {
+    if (syncConfig.gistId && syncConfig.gistToken) {
+      pullFromGist({ silent: true });
+    }
+  });
+  window.addEventListener('pageshow', () => {
+    if (syncConfig.gistId && syncConfig.gistToken) {
+      pullFromGist({ silent: true });
+    }
+  });
+  window.addEventListener('online', () => {
+    if (syncConfig.gistId && syncConfig.gistToken) {
+      pullFromGist({ silent: false });
+    }
+  });
 }
 
 /**
@@ -759,6 +920,8 @@ function bindEvents() {
       const id = delExpBtn.getAttribute('data-del-expense');
       const monthRec = ensureMonthRecord(activeMonthKey);
       monthRec.expenses = monthRec.expenses.filter((x) => x.id !== id);
+      if (!Array.isArray(state.deletedIds)) state.deletedIds = [];
+      state.deletedIds.push(id);
       saveState(true);
       return;
     }
@@ -768,6 +931,8 @@ function bindEvents() {
       const id = delIncBtn.getAttribute('data-del-income');
       const monthRec = ensureMonthRecord(activeMonthKey);
       monthRec.expectedIncomes = monthRec.expectedIncomes.filter((x) => x.id !== id);
+      if (!Array.isArray(state.deletedIds)) state.deletedIds = [];
+      state.deletedIds.push(id);
       saveState(true);
       return;
     }
@@ -776,6 +941,8 @@ function bindEvents() {
     if (delFixedBtn) {
       const id = delFixedBtn.getAttribute('data-del-fixed');
       state.fixedBills = state.fixedBills.filter((x) => x.id !== id);
+      if (!Array.isArray(state.deletedIds)) state.deletedIds = [];
+      state.deletedIds.push(id);
       saveState(true);
       return;
     }
@@ -784,6 +951,8 @@ function bindEvents() {
     if (delAnnualBtn) {
       const id = delAnnualBtn.getAttribute('data-del-annual');
       state.annualBills = state.annualBills.filter((x) => x.id !== id);
+      if (!Array.isArray(state.deletedIds)) state.deletedIds = [];
+      state.deletedIds.push(id);
       saveState(true);
       return;
     }
@@ -1042,14 +1211,15 @@ function bindEvents() {
 }
 
 // Initialize
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   setupModernDialogs();
   bindEvents();
-  handleIncomingUrlParams();
   renderApp();
+  await handleIncomingUrlParams();
   if (syncConfig.gistId && syncConfig.gistToken) {
-    pullFromGist();
+    await pullFromGist({ silent: false });
   }
+  startAutoSyncLoop();
   if ('serviceWorker' in navigator && window.location.protocol.startsWith('http')) {
     navigator.serviceWorker.register('./sw.js').catch(() => {});
   }
