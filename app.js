@@ -125,12 +125,19 @@ function loadState() {
   }
 }
 
+const DEFAULT_GIST_ID = 'e5b19c723fa2912e74dae29ce1aa2fe6';
+
 function loadSyncConfig() {
   try {
     const raw = localStorage.getItem(SYNC_CONFIG_KEY);
-    return raw ? JSON.parse(raw) : { gistId: '', gistToken: '' };
+    if (!raw) return { gistId: DEFAULT_GIST_ID, gistToken: '' };
+    const parsed = JSON.parse(raw);
+    return {
+      gistId: parsed.gistId || DEFAULT_GIST_ID,
+      gistToken: parsed.gistToken || ''
+    };
   } catch {
-    return { gistId: '', gistToken: '' };
+    return { gistId: DEFAULT_GIST_ID, gistToken: '' };
   }
 }
 
