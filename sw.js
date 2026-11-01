@@ -1,4 +1,4 @@
-const CACHE_NAME = 'finanzplan-v7';
+const CACHE_NAME = 'finanzplan-v8';
 const ASSETS = [
   './',
   './index.html',
@@ -34,7 +34,6 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET' || url.origin !== self.location.origin) {
     return;
   }
-  // Network-first for HTML/JS/CSS with offline cache fallback
   event.respondWith(
     fetch(event.request)
       .then((response) => {
@@ -43,5 +42,17 @@ self.addEventListener('fetch', (event) => {
         return response;
       })
       .catch(() => caches.match(event.request).then((res) => res || caches.match('./index.html')))
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        if ('focus' in client) return client.focus();
+      }
+      if (self.clients.openWindow) return self.clients.openWindow('./');
+    })
   );
 });

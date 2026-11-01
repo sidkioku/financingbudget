@@ -921,6 +921,7 @@ async function pushToGist() {
       }
     }
 
+    const dailyNotif = buildDailyNotificationPayload();
     const res = await fetch(`https://api.github.com/gists/${encodeURIComponent(syncConfig.gistId)}`, {
       method: 'PATCH',
       cache: 'no-store',
@@ -934,6 +935,9 @@ async function pushToGist() {
         files: {
           'finanzplan_state.json': {
             content: JSON.stringify(state, null, 2)
+          },
+          'finanzplan_heute.txt': {
+            content: `${dailyNotif.title}\n${dailyNotif.body}`
           }
         }
       })
@@ -1331,6 +1335,179 @@ function bindEvents() {
     };
     reader.readAsText(file);
   });
+
+  // Modal 5: Notifications & Calendar (.ics)
+  const notifyDialog = document.getElementById('notifyDialog');
+  document.getElementById('openNotifyDialogBtn').addEventListener('click', () => {
+    const payload = buildDailyNotificationPayload();
+    document.getElementById('notifyPreviewBox').textContent = `${payload.title}\n${payload.body}`;
+    notifyDialog.showModal();
+  });
+
+  document.getElementById('enablePushBtn').addEventListener('click', async () => {
+    await triggerAppNotification({ force: true });
+  });
+
+  document.getElementById('copyDailyPushUrlBtn').addEventListener('click', async () => {
+    const gId = syncConfig.gistId || DEFAULT_GIST_ID;
+    const rawUrl = `https://gist.githubusercontent.com/sidkioku/${encodeURIComponent(gId)}/raw/finanzplan_heute.txt`;
+    await navigator.clipboard.writeText(rawUrl);
+    if (syncConfig.gistId && syncConfig.gistToken) {
+      pushToGist();
+    }
+    showToast('📋 Live-Status-URL für deinen 08:30-Uhr-Kurzbefehl kopiert!');
+  });
+
+  document.getElementById('downloadIcsBtn').addEventListener('click', () => {
+    downloadUpcomingBillsIcs();
+  });
+}
+
+/**
+ * Builds the German notification title & body for today (due bills + remaining daily budget)
+ */
+function buildDailyNotificationPayload() {
+  const todayKey = getTodayMonthKey();
+  const m = computeMonthMetrics(todayKey);
+  const daysLeft = getDaysRemainingInMonth(todayKey);
+  const perDay = m.safeToSpend > 0 ? m.safeToSpend / daysLeft : 0;
+
+  const now = new Date();
+  const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+  const tomorrowMidnight = addDays(todayMidnight, 1);
+
+  const dueToday = [];
+  const dueTomorrow = [];
+
+  for (const bill of state.fixedBills) {
+    const sched = getBillScheduleInCycle(bill, todayKey);
+    if (!sched) continue;
+    if (isSameCalendarDay(sched.effectiveDate, todayMidnight)) {
+      dueToday.push(`${bill.name} (${formatEUR(bill.amount)})`);
+    } else if (isSameCalendarDay(sched.effectiveDate, tomorrowMidnight)) {
+      dueTomorrow.push(`${bill.name} (${formatEUR(bill.amount)})`);
+    }
+  }
+
+  const title = `💶 Noch ${formatEUR(perDay)} / Tag (${formatEUR(m.safeToSpend)} frei)`;
+  const parts = [];
+  if (dueToday.length > 0) {
+    parts.push(`📅 Heute abgebucht: ${dueToday.join(', ')}`);
+  } else if (dueTomorrow.length > 0) {
+    parts.push(`⏳ Morgen fällig: ${dueTomorrow.join(', ')}`);
+  } else {
+    parts.push('✓ Heute keine Fixkosten-Abbuchung');
+  }
+  parts.push(`Offene Fixkosten im Zyklus: ${formatEUR(m.fixedRestbetrag)}`);
+
+  return {
+    title,
+    body: parts.join(' • ')
+  };
+}
+
+/**
+ * Requests permission (if force=true) and triggers a native iOS/macOS Web App Notification
+ */
+async function triggerAppNotification({ force = false } = {}) {
+  if (!('Notification' in window)) {
+    if (force) {
+      showToast('Hinweis: Öffne die App über das iPhone Home-Bildschirm-Icon für Push-Mitteilungen.');
+    }
+    return;
+  }
+
+  let perm = Notification.permission;
+  if (force && perm !== 'granted') {
+    perm = await Notification.requestPermission();
+  }
+  if (perm !== 'granted') {
+    if (force) showToast('Mitteilungen sind in den Browser-/iOS-Einstellungen blockiert.');
+    return;
+  }
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+  if (!force && localStorage.getItem('finanzplan_last_notified_day') === todayStr) {
+    return;
+  }
+  localStorage.setItem('finanzplan_last_notified_day', todayStr);
+
+  const payload = buildDailyNotificationPayload();
+  try {
+    if ('serviceWorker' in navigator) {
+      const reg = await navigator.serviceWorker.ready;
+      if (reg && reg.showNotification) {
+        await reg.showNotification(payload.title, {
+          body: payload.body,
+          icon: 'apple-touch-icon.png',
+          badge: 'icon-192.png',
+          tag: `finanzplan-${todayStr}`
+        });
+        if (force) showToast('🔔 Test-Mitteilung gesendet!');
+        return;
+      }
+    }
+    new Notification(payload.title, {
+      body: payload.body,
+      icon: 'apple-touch-icon.png'
+    });
+    if (force) showToast('🔔 Test-Mitteilung gesendet!');
+  } catch {
+    if (force) showToast('Mitteilung konnte nicht angezeigt werden.');
+  }
+}
+
+/**
+ * Generates an iCalendar (.ics) file with all upcoming Werktag-adjusted fixed & annual bills + 09:00 AM alarm
+ */
+function downloadUpcomingBillsIcs() {
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Finanzplan//Budget & Fixkosten//DE',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    'X-WR-CALNAME:Finanzplan Abbuchungen'
+  ];
+
+  const pad2 = (n) => String(n).padStart(2, '0');
+  const formatIcsDate = (d) => `${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}`;
+
+  const startCycle = getTodayMonthKey();
+  // Export next 6 cycles of fixed bills with exact Werktag shift
+  for (let i = 0; i < 6; i++) {
+    const cycKey = shiftMonthKey(startCycle, i);
+    for (const bill of state.fixedBills) {
+      const sched = getBillScheduleInCycle(bill, cycKey);
+      if (!sched) continue;
+      const dStr = formatIcsDate(sched.effectiveDate);
+      const nextDStr = formatIcsDate(addDays(sched.effectiveDate, 1));
+      const shiftInfo = sched.shifted ? ' (verschoben wegen Wochenende/Feiertag)' : '';
+      lines.push(
+        'BEGIN:VEVENT',
+        `UID:finanzplan-${bill.id}-${cycKey}@sidkioku.github.io`,
+        `DTSTART;VALUE=DATE:${dStr}`,
+        `DTEND;VALUE=DATE:${nextDStr}`,
+        `SUMMARY:💶 ${bill.name}: ${formatEUR(bill.amount)}`,
+        `DESCRIPTION:Monatliche Fixkosten-Abbuchung${shiftInfo}`,
+        'BEGIN:VALARM',
+        'TRIGGER:PT9H',
+        'ACTION:DISPLAY',
+        `DESCRIPTION:Heute fällig: ${bill.name} (${formatEUR(bill.amount)})`,
+        'END:VALARM',
+        'END:VEVENT'
+      );
+    }
+  }
+
+  lines.push('END:VCALENDAR');
+  const blob = new Blob([lines.join('\r\n')], { type: 'text/calendar;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'finanzplan-abbuchungen.ics';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  showToast('📅 Kalender-Datei (.ics) mit iPhone-Erinnerungen geladen!');
 }
 
 // Initialize
@@ -1346,4 +1523,5 @@ document.addEventListener('DOMContentLoaded', async () => {
   if ('serviceWorker' in navigator && window.location.protocol.startsWith('http')) {
     navigator.serviceWorker.register('./sw.js').catch(() => {});
   }
+  triggerAppNotification({ force: false });
 });

@@ -102,8 +102,11 @@
           <button type="button" id="openReconcileBtn" class="btn">
             🏖️ Urlaub / Konto-Abgleich
           </button>
+          <button type="button" id="openNotifyDialogBtn" class="btn">
+            🔔 Handy-Mitteilungen
+          </button>
           <button type="button" id="openShortcutGuideBtn" class="btn">
-            📱 Apple Pay Automation
+            📱 Apple Pay &amp; Sync
           </button>
         </div>
       </div>
@@ -423,6 +426,53 @@
             <input type="file" id="importJsonInput" accept="application/json" hidden>
           </label>
         </div>
+      </div>
+    </div>
+
+    <form method="dialog" class="dialog-actions">
+      <button type="submit" value="cancel" class="btn">Schließen</button>
+    </form>
+  </dialog>
+
+  <!-- MODAL 5: Handy-Mitteilungen (Tägliche Fälligkeiten & Tagesbudget) -->
+  <!-- MANDATORY: no role="dialog" or aria-modal; the native modal already provides them -->
+  <dialog id="notifyDialog" closedby="any" aria-labelledby="notifyDialogTitle">
+    <div class="dialog-header">
+      <h2 id="notifyDialogTitle" class="dialog-title">🔔 iPhone Benachrichtigungen</h2>
+    </div>
+
+    <div class="form-stack">
+      <div class="code-step">
+        <strong>1. Direkt-Mitteilungen der Home-Screen Web-App (iOS 16.4+)</strong>
+        <p class="brand-subtitle" style="margin-block: 0.3rem 0.6rem;">
+          Schickt dir eine echte iPhone-Mitteilung mit deinen <strong>heutigen Abbuchungen (inkl. Werktags-Logik)</strong> und deinem aktuellen <strong>Tagesbudget (&euro;/Tag)</strong>:
+        </p>
+        <p id="notifyPreviewBox" class="code-box" style="white-space: pre-wrap;"></p>
+        <div style="display: flex; flex-wrap: wrap; gap: 0.45rem; margin-block-top: 0.6rem;">
+          <button type="button" id="enablePushBtn" class="btn btn-primary">🔔 Mitteilungen erlauben &amp; Test-Push senden</button>
+        </div>
+      </div>
+
+      <div class="code-step">
+        <strong>2. Automatischer Morgen-Push um 08:30 Uhr (auch bei geschlossener App)</strong>
+        <p class="brand-subtitle" style="margin-block: 0.3rem 0.5rem;">
+          Damit dein iPhone dich jeden Morgen automatisch auf dem Sperrbildschirm informiert, ohne dass du die App öffnen musst:
+        </p>
+        <ol style="margin: 0; padding-inline-start: 1.2rem; font-size: 0.83rem; line-height: 1.55;">
+          <li>Öffne auf dem iPhone <strong>Kurzbefehle</strong> &rarr; <strong>Automation</strong> &rarr; <strong>+</strong> &rarr; <strong>Tageszeit</strong> (z.B. <code>08:30</code> täglich, <em>Sofort ausführen</em>).</li>
+          <li>Füge die Aktion <strong>„Inhalte von URL abrufen“</strong> hinzu (mit der Live-Status-URL unten) und direkt darunter <strong>„Mitteilung anzeigen“</strong> (mit Variable <em>Inhalte der URL</em>).</li>
+        </ol>
+        <div style="margin-block-top: 0.5rem;">
+          <button type="button" id="copyDailyPushUrlBtn" class="btn">📋 Live-Status-URL für Morgen-Push kopieren</button>
+        </div>
+      </div>
+
+      <div class="code-step">
+        <strong>3. 1-Klick iPhone-Kalender-Erinnerungen (.ics mit Werktags-Logik)</strong>
+        <p class="brand-subtitle" style="margin-block: 0.3rem 0.5rem;">
+          Trägt alle anstehenden Fixkosten &amp; Jahreszahlungen (bereits auf Bankarbeitstage verschoben!) mit 09:00-Uhr-Erinnerung direkt in deinen iPhone-Kalender ein:
+        </p>
+        <button type="button" id="downloadIcsBtn" class="btn">📅 Fälligkeiten für iPhone-Kalender laden (.ics)</button>
       </div>
     </div>
 
