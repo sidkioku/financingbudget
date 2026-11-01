@@ -1,0 +1,437 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <!-- MANDATORY: Declare support for both light and dark themes -->
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#0f766e">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Finanzplan">
+  <title>Finanzplan — Ausgaben &amp; Budget</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <!-- Topbar -->
+    <header class="topbar">
+      <div class="brand-group">
+        <img src="icon.svg" alt="" class="brand-logo" width="38" height="38">
+        <div>
+          <h1 class="brand-title">Finanzplan</h1>
+          <p class="brand-subtitle">Null-Aufwand Budget &bull; iPhone &amp; Mac</p>
+        </div>
+      </div>
+
+      <div class="topbar-controls">
+        <div class="month-nav" role="group" aria-label="Monatsauswahl">
+          <button type="button" id="prevMonthBtn" aria-label="Vorheriger Monat">&lsaquo;</button>
+          <span id="currentMonthLabel" class="month-label">November 2026</span>
+          <button type="button" id="nextMonthBtn" aria-label="Nächster Monat">&rsaquo;</button>
+        </div>
+
+        <button type="button" id="openSyncBtn" class="sync-pill" title="Cloud-Sync &amp; Apple Pay Kurzbefehl">
+          <span id="syncDot" class="sync-dot"></span>
+          <span id="syncStatusText">Lokal gespeichert</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Hero Grid: Safe-to-Spend + Instant Quick-Add -->
+    <section class="hero-grid" aria-label="Monatsübersicht und Schnelleingabe">
+      <div class="card hero-main">
+        <div>
+          <p class="eyebrow">Frei verfügbar diesen Monat (nach allen Fixkosten)</p>
+          <p id="safeToSpendValue" class="big-amount positive">0,00 &euro;</p>
+          <div id="dailyAllowanceBadge" class="daily-allowance">
+            <span>Noch 0,00 &euro; / Tag für den Rest des Monats</span>
+          </div>
+        </div>
+
+        <div>
+          <div class="progress-track" aria-hidden="true">
+            <div id="budgetProgressFill" class="progress-fill" style="inline-size: 0%"></div>
+          </div>
+          <div class="hero-submetrics">
+            <div>
+              <span class="submetric-label">Einnahmen (Monat)</span>
+              <span id="heroIncomeTotal" class="submetric-val">0,00 &euro;</span>
+            </div>
+            <div>
+              <span class="submetric-label">Fixkosten + Rücklage</span>
+              <span id="heroFixedBaseline" class="submetric-val">1.543,20 &euro;</span>
+            </div>
+            <div>
+              <span class="submetric-label">Variabel ausgegeben</span>
+              <span id="heroVariableSpent" class="submetric-val">0,00 &euro;</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card quick-add-card">
+        <div>
+          <p class="eyebrow">Schnell-Ausgabe (oder automatisch per Apple Pay)</p>
+          <form id="quickExpenseForm" class="quick-form">
+            <input
+              type="text"
+              inputmode="decimal"
+              id="quickAmountInput"
+              class="input input-amount"
+              placeholder="Betrag €"
+              aria-label="Ausgabenbetrag in Euro"
+              required
+            >
+            <input
+              type="text"
+              id="quickNoteInput"
+              class="input"
+              placeholder="Optional: Notiz / Händler"
+              aria-label="Optionale Notiz oder Händler"
+            >
+            <button type="submit" class="btn btn-primary" aria-label="Ausgabe speichern">+ Buchen</button>
+          </form>
+        </div>
+
+        <div class="quick-actions-row">
+          <button type="button" id="openReconcileBtn" class="btn">
+            🏖️ Urlaub / Konto-Abgleich
+          </button>
+          <button type="button" id="openShortcutGuideBtn" class="btn">
+            📱 Apple Pay Automation
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4-KPI Summary Strip -->
+    <section class="kpi-grid" aria-label="Finanz-Kennzahlen im aktuellen Monat">
+      <div class="kpi-card">
+        <p class="eyebrow">Bereits verbraucht (Monat)</p>
+        <p id="kpiTotalUsed" class="kpi-value">0,00 &euro;</p>
+        <p id="kpiTotalUsedMeta" class="kpi-meta">0,00 &euro; Fixkosten abgebucht + 0,00 &euro; variabel</p>
+      </div>
+
+      <div class="kpi-card">
+        <p class="eyebrow">Offene Fixkosten (Restbetrag)</p>
+        <p id="kpiRestbetrag" class="kpi-value">0,00 &euro;</p>
+        <p id="kpiRestbetragMeta" class="kpi-meta">Geht diesen Monat noch vom Konto ab</p>
+      </div>
+
+      <div class="kpi-card">
+        <p class="eyebrow">Erwartete Einnahmen (Offen)</p>
+        <p id="kpiExpectedIncome" class="kpi-value">0,00 &euro;</p>
+        <p id="kpiExpectedIncomeMeta" class="kpi-meta">Nächster Geldeingang</p>
+      </div>
+
+      <div class="kpi-card">
+        <p class="eyebrow">Glättung Jahreszahlungen</p>
+        <p id="kpiAnnualReserve" class="kpi-value">49,68 &euro;</p>
+        <p id="kpiAnnualReserveMeta" class="kpi-meta">596,11 &euro;/Jahr + 18,36 &euro;/Mo GEZ</p>
+      </div>
+    </section>
+
+    <!-- Dynamic Notice Banner for Quarterly / Annual Actual Debits -->
+    <div id="specialDebitBanner" class="notice-banner" hidden>
+      <span id="specialDebitText"></span>
+    </div>
+
+    <!-- Two-Column Lists: Variable Expenses & Expected Income -->
+    <section class="content-grid" aria-label="Variable Ausgaben und Einnahmen">
+      <!-- Variable Expenses List -->
+      <div class="card">
+        <div class="section-header">
+          <div>
+            <h2 class="section-title">Variable Ausgaben (Alltag &amp; Urlaub)</h2>
+            <p class="brand-subtitle">Einzelbuchungen, Apple Pay &amp; Pauschalbeträge</p>
+          </div>
+          <span id="variableCountBadge" class="badge">0 Einträge</span>
+        </div>
+
+        <ul id="variableExpenseList" class="item-list" aria-live="polite"></ul>
+      </div>
+
+      <!-- Income & Expected Payments -->
+      <div class="card">
+        <div class="section-header">
+          <div>
+            <h2 class="section-title">Einnahmen &amp; Erwartete Zahlungen</h2>
+            <p class="brand-subtitle">Was kommt wann rein?</p>
+          </div>
+          <button type="button" id="openIncomeDialogBtn" class="btn">+ Einnahme / Gehalt</button>
+        </div>
+
+        <ul id="incomeList" class="item-list" aria-live="polite"></ul>
+      </div>
+    </section>
+
+    <!-- Fixed Monthly Bills Table (Monatliche_Ausgaben.numbers) -->
+    <section class="card" style="margin-block-end: 1.2rem;" aria-labelledby="fixed-bills-heading">
+      <div class="section-header">
+        <div>
+          <h2 id="fixed-bills-heading" class="section-title">Monatliche Fixkosten (automatisch nach Monatstag)</h2>
+          <p class="brand-subtitle">Haken wird am Fälligkeitstag automatisch gesetzt &bull; Klick zum Überschreiben</p>
+        </div>
+        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+          <button type="button" id="resetOverridesBtn" class="btn btn-ghost" title="Manuelle Haken für diesen Monat auf Automatik zurücksetzen">↻ Auto-Status</button>
+          <button type="button" id="addFixedBillBtn" class="btn">+ Fixkosten</button>
+        </div>
+      </div>
+
+      <div tabindex="0" role="region" aria-labelledby="fixed-table-caption" class="table-wrapper">
+        <table class="fixed-table">
+          <caption id="fixed-table-caption">Monatliche Fixkosten und Restbetrag im aktuellen Monat</caption>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Bezahlt?</th>
+              <th class="num-col">Betrag</th>
+              <th class="num-col">Restbetrag</th>
+              <th>Monatstag</th>
+              <th class="num-col">Aktion</th>
+            </tr>
+          </thead>
+          <tbody id="fixedBillsTbody"></tbody>
+          <tfoot>
+            <tr>
+              <th>Summe Monatliche Fixkosten</th>
+              <td id="fixedPaidCountCell"></td>
+              <td id="fixedTotalAmountCell" class="num-col">1.493,52 &euro;</td>
+              <td id="fixedTotalRestCell" class="num-col">0,00 &euro;</td>
+              <td colspan="2"></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </section>
+
+    <!-- Annual Bills Table (Jährliche Zahlung aus Numbers) -->
+    <section class="card" aria-labelledby="annual-bills-heading">
+      <div class="section-header">
+        <div>
+          <h2 id="annual-bills-heading" class="section-title">Jährliche Zahlungen (Sinking Fund)</h2>
+          <p class="brand-subtitle">Wird monatlich geglättet zurückgelegt, damit jeder Monat gleich bleibt</p>
+        </div>
+        <button type="button" id="addAnnualBillBtn" class="btn">+ Jährliche Zahlung</button>
+      </div>
+
+      <div tabindex="0" role="region" aria-labelledby="annual-table-caption" class="table-wrapper">
+        <table class="annual-table">
+          <caption id="annual-table-caption">Jährliche Zahlungen und monatliche Rücklage</caption>
+          <thead>
+            <tr>
+              <th>Grund</th>
+              <th class="num-col">Jährliche Zahlung</th>
+              <th class="num-col">Monats-Rücklage (&divide;12)</th>
+              <th>Datum / Monat</th>
+              <th class="num-col">Aktion</th>
+            </tr>
+          </thead>
+          <tbody id="annualBillsTbody"></tbody>
+          <tfoot>
+            <tr>
+              <th>Summe Jährliche Zahlungen</th>
+              <td id="annualTotalCell" class="num-col">596,11 &euro;</td>
+              <td id="annualMonthlyReserveCell" class="num-col">49,68 &euro;</td>
+              <td colspan="2"></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <!-- MODAL 1: Urlaubs-Pauschale & 5-Sekunden Kontostand-Abgleich -->
+  <!-- MANDATORY: no role="dialog" or aria-modal; the native modal already provides them -->
+  <dialog id="reconcileDialog" closedby="any" aria-labelledby="reconcileDialogTitle">
+    <div class="dialog-header">
+      <h2 id="reconcileDialogTitle" class="dialog-title">🏖️ Urlaubs-Pauschale / Konto-Abgleich</h2>
+    </div>
+    <p class="brand-subtitle" style="margin-block-end: 1rem;">
+      Keine Lust oder Zeit gehabt, im Urlaub jede Kleinigkeit einzutragen? Erledige alles in 5 Sekunden:
+    </p>
+
+    <div class="form-stack">
+      <div class="code-step">
+        <strong>Option A: 5-Sekunden Kontostand-Abgleich (Empfohlen)</strong>
+        <p class="brand-subtitle" style="margin-block: 0.25rem 0.6rem;">
+          Tippe einfach deinen aktuellen Bank-Kontostand ein. Die App zieht bereits abgebuchte Fixkosten und geloggte Ausgaben ab und bucht die Differenz automatisch als Sammelposten.
+        </p>
+        <div class="field-group">
+          <label for="actualBankBalanceInput">Aktueller Bank-Kontostand (&euro;)</label>
+          <input type="text" inputmode="decimal" id="actualBankBalanceInput" class="input input-amount" placeholder="z.B. 1.240,50">
+        </div>
+        <p id="reconcilePreviewText" class="brand-subtitle" style="margin-block-top: 0.45rem;"></p>
+        <div style="margin-block-top: 0.6rem;">
+          <button type="button" id="applyBalanceReconcileBtn" class="btn btn-primary">Differenz automatisch ausgleichen</button>
+        </div>
+      </div>
+
+      <div class="code-step">
+        <strong>Option B: Einfacher Pauschalbetrag (z.B. „Urlaub komplett“)</strong>
+        <div style="display: grid; grid-template-columns: 1fr 1.3fr; gap: 0.5rem; margin-block-top: 0.5rem;">
+          <input type="text" inputmode="decimal" id="lumpSumAmountInput" class="input input-amount" placeholder="z.B. 380,00" aria-label="Pauschalbetrag in Euro">
+          <input type="text" id="lumpSumNoteInput" class="input" placeholder="z.B. Urlaub / Wochenende" value="Urlaub / Sammelbuchung" aria-label="Bezeichnung für Pauschalbetrag">
+        </div>
+        <div style="margin-block-top: 0.6rem;">
+          <button type="button" id="applyLumpSumBtn" class="btn btn-primary">Pauschalbetrag buchen</button>
+        </div>
+      </div>
+    </div>
+
+    <form method="dialog" class="dialog-actions">
+      <button type="submit" value="cancel" class="btn">Schließen</button>
+    </form>
+  </dialog>
+
+  <!-- MODAL 2: Einnahmen & Gehalt verwalten -->
+  <dialog id="incomeDialog" closedby="any" aria-labelledby="incomeDialogTitle">
+    <div class="dialog-header">
+      <h2 id="incomeDialogTitle" class="dialog-title">💶 Einnahmen &amp; Erwartete Zahlungen</h2>
+    </div>
+
+    <div class="form-stack">
+      <div class="code-step">
+        <strong>1. Festes monatliches Haupteinkommen (Gehalt)</strong>
+        <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 0.5rem; margin-block-top: 0.5rem;">
+          <div class="field-group">
+            <label for="baseSalaryAmountInput">Monatliches Netto (&euro;)</label>
+            <input type="text" inputmode="decimal" id="baseSalaryAmountInput" class="input input-amount" placeholder="z.B. 2.800,00">
+          </div>
+          <div class="field-group">
+            <label for="baseSalaryDayInput">Zahltag im Monat (1–31)</label>
+            <input type="number" min="1" max="31" id="baseSalaryDayInput" class="input" placeholder="z.B. 28">
+          </div>
+        </div>
+        <div class="field-group" style="margin-block-top: 0.45rem;">
+          <label for="creditCardDayInput">Abrechnungstag für „Kreditkartenabrechnung“ (iCloud / YouTube)</label>
+          <input type="number" min="1" max="31" id="creditCardDayInput" class="input" placeholder="z.B. 28">
+        </div>
+        <div style="margin-block-top: 0.65rem;">
+          <button type="button" id="saveBaseSalaryBtn" class="btn btn-primary">Gehalt &amp; Einstellungen speichern</button>
+        </div>
+      </div>
+
+      <div class="code-step">
+        <strong>2. Einmalige erwartete Zahlung hinzufügen (dieser Monat)</strong>
+        <p class="brand-subtitle" style="margin-block: 0.2rem 0.5rem;">
+          Für Rückerstattungen, Freunde, Bonus, Verkauf etc. — zeigt dir sofort, was wann noch reinkommt.
+        </p>
+        <div style="display: grid; grid-template-columns: 1fr 1.3fr; gap: 0.5rem;">
+          <div class="field-group">
+            <label for="expectedAmountInput">Betrag (&euro;)</label>
+            <input type="text" inputmode="decimal" id="expectedAmountInput" class="input input-amount" placeholder="z.B. 120,00">
+          </div>
+          <div class="field-group">
+            <label for="expectedTitleInput">Von wem / Grund</label>
+            <input type="text" id="expectedTitleInput" class="input" placeholder="z.B. Reisekosten / PayPal">
+          </div>
+        </div>
+        <div class="field-group" style="margin-block-top: 0.45rem;">
+          <label for="expectedDateInput">Erwartetes Datum</label>
+          <input type="date" id="expectedDateInput" class="input">
+        </div>
+        <div style="margin-block-top: 0.65rem;">
+          <button type="button" id="addExpectedIncomeBtn" class="btn btn-primary">+ Erwartete Einnahme speichern</button>
+        </div>
+      </div>
+    </div>
+
+    <form method="dialog" class="dialog-actions">
+      <button type="submit" value="cancel" class="btn">Fertig</button>
+    </form>
+  </dialog>
+
+  <!-- MODAL 3: Fixkosten / Jährliche Zahlung hinzufügen -->
+  <dialog id="fixedBillDialog" closedby="any" aria-labelledby="fixedBillDialogTitle">
+    <div class="dialog-header">
+      <h2 id="fixedBillDialogTitle" class="dialog-title">Neue regelmäßige Ausgabe</h2>
+    </div>
+
+    <form id="addRecurringForm" class="form-stack">
+      <input type="hidden" id="recurringTypeInput" value="monthly">
+      <div class="field-group">
+        <label for="recurringNameInput">Name / Grund</label>
+        <input type="text" id="recurringNameInput" class="input" required placeholder="z.B. Haftpflicht / Abo">
+      </div>
+      <div class="field-group">
+        <label for="recurringAmountInput">Betrag (&euro;)</label>
+        <input type="text" inputmode="decimal" id="recurringAmountInput" class="input input-amount" required placeholder="z.B. 24,99">
+      </div>
+      <div class="field-group">
+        <label id="recurringDayLabel" for="recurringDayInput">Monatstag (z.B. 01., 15. oder Kreditkartenabrechnung)</label>
+        <input type="text" id="recurringDayInput" class="input" placeholder="z.B. 15.">
+      </div>
+      <div class="dialog-actions">
+        <button type="button" id="cancelRecurringBtn" class="btn">Abbrechen</button>
+        <button type="submit" class="btn btn-primary">Speichern</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- MODAL 4: Apple Pay iPhone Automation & GitHub Gist Cloud-Sync -->
+  <dialog id="shortcutDialog" closedby="any" aria-labelledby="shortcutDialogTitle">
+    <div class="dialog-header">
+      <h2 id="shortcutDialogTitle" class="dialog-title">📱 iPhone Apple Pay &amp; Mac Cloud-Sync</h2>
+    </div>
+
+    <div class="form-stack">
+      <div class="code-step">
+        <strong>⚡ 1. iPhone Apple Pay Auto-Trigger (in 60 Sek. eingerichtet)</strong>
+        <p class="brand-subtitle" style="margin-block: 0.3rem 0.5rem;">
+          Jedes Mal, wenn du mit dem iPhone (Apple Pay) bezahlst, wird der Betrag + Händler automatisch eingetragen:
+        </p>
+        <ol style="margin: 0; padding-inline-start: 1.2rem; font-size: 0.83rem; line-height: 1.55;">
+          <li>Öffne auf dem iPhone die App <strong>Kurzbefehle (Shortcuts)</strong> &rarr; Tab <strong>Automation</strong> &rarr; <strong>+</strong>.</li>
+          <li>Wähle <strong>Transaktion</strong> (Wallet / Apple Pay) &rarr; „Wenn ich eine beliebige Karte antippe“ &rarr; <strong>Sofort ausführen</strong>.</li>
+          <li>Füge die Aktion <strong>„URLs öffnen“</strong> hinzu und setze diese URL ein (mit den Variablen <em>Betrag</em> und <em>Händler/Name</em> aus „Kurzbefehlseingabe“):</li>
+        </ol>
+        <code id="shortcutUrlTemplate" class="code-box"></code>
+        <button type="button" id="copyShortcutUrlBtn" class="btn" style="margin-block-top: 0.35rem;">📋 Basis-Link kopieren</button>
+      </div>
+
+      <div class="code-step">
+        <strong>☁️ 2. Kostenloser Echtzeit-Sync (iPhone &harr; Mac via GitHub Gist)</strong>
+        <p class="brand-subtitle" style="margin-block: 0.3rem 0.5rem;">
+          Synchronisiert deinen Finanzplan automatisch zwischen iPhone und Mac über ein privates GitHub Gist.
+        </p>
+        <div class="field-group">
+          <label for="gistIdInput">Gist-ID (wird automatisch ausgefüllt)</label>
+          <input type="text" id="gistIdInput" class="input" placeholder="z.B. a1b2c3d4...">
+        </div>
+        <div class="field-group" style="margin-block-top: 0.45rem;">
+          <label for="gistTokenInput">GitHub Personal Access Token (nur <code>gist</code> Berechtigung)</label>
+          <input type="password" id="gistTokenInput" class="input" placeholder="ghp_... oder github_pat_...">
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 0.45rem; margin-block-top: 0.65rem;">
+          <button type="button" id="saveSyncConfigBtn" class="btn btn-primary">Sync verbinden &amp; jetzt abgleichen</button>
+          <button type="button" id="copySyncMagicLinkBtn" class="btn" title="Erstellt einen Einmal-Link für dein iPhone, damit du dort nichts abtippen musst">📲 iPhone Direkt-Setup-Link kopieren</button>
+        </div>
+      </div>
+
+      <div class="code-step">
+        <strong>💾 3. Backup Export / Import (JSON)</strong>
+        <div style="display: flex; gap: 0.5rem; margin-block-top: 0.4rem;">
+          <button type="button" id="exportJsonBtn" class="btn">Backup herunterladen</button>
+          <label class="btn" style="margin: 0;">
+            Backup laden
+            <input type="file" id="importJsonInput" accept="application/json" hidden>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <form method="dialog" class="dialog-actions">
+      <button type="submit" value="cancel" class="btn">Schließen</button>
+    </form>
+  </dialog>
+
+  <div id="toastBanner" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <script src="app.js" defer></script>
+</body>
+</html>
