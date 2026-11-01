@@ -476,10 +476,19 @@ function renderApp() {
     incListEl.appendChild(li);
   }
 
-  // Fixed Bills Table (Monatliche_Ausgaben.numbers)
+  // Fixed Bills Table (Monatliche_Ausgaben.numbers) — sorted chronologically within the 20. -> 20. cycle
   const fixedTbody = document.getElementById('fixedBillsTbody');
   fixedTbody.innerHTML = '';
-  for (const bill of state.fixedBills) {
+  const sortedFixedBills = [...state.fixedBills].sort((a, b) => {
+    const dA = getBillDueDateInCycle(a, activeMonthKey);
+    const dB = getBillDueDateInCycle(b, activeMonthKey);
+    if (!dA && !dB) return 0;
+    if (!dA) return 1;
+    if (!dB) return -1;
+    return dA.getTime() - dB.getTime();
+  });
+
+  for (const bill of sortedFixedBills) {
     const paid = isBillPaidInMonth(bill, activeMonthKey);
     const rest = paid ? 0 : bill.amount;
     const hasManualOverride = Object.prototype.hasOwnProperty.call(monthRec.paidOverrides, bill.id);
@@ -511,10 +520,11 @@ function renderApp() {
   document.getElementById('fixedTotalAmountCell').textContent = formatEUR(m.fixedTotal);
   document.getElementById('fixedTotalRestCell').textContent = formatEUR(m.fixedRestbetrag);
 
-  // Annual Bills Table
+  // Annual Bills Table — sorted chronologically by month
   const annualTbody = document.getElementById('annualBillsTbody');
   annualTbody.innerHTML = '';
-  for (const ann of state.annualBills) {
+  const sortedAnnualBills = [...state.annualBills].sort((a, b) => (a.month || 99) - (b.month || 99));
+  for (const ann of sortedAnnualBills) {
     const monthlyPart = ann.amount / 12;
     const tr = document.createElement('tr');
     tr.innerHTML = `
