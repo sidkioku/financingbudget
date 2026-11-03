@@ -110,7 +110,79 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
+  margin-block-end: 0.85rem;
+}
+
+/* 2-Page Segmented View Switcher & SPA Views per modern-web-guidance `faster-spa-view-transitions` */
+.view-switcher {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.35rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 0.3rem;
   margin-block-end: 1.1rem;
+}
+
+.view-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  padding: 0.6rem 0.9rem;
+  font-size: 0.92rem;
+  font-weight: 700;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.view-tab:hover {
+  color: var(--text-primary);
+}
+
+.view-tab.active {
+  background: var(--color-brand);
+  color: var(--color-brand-text);
+}
+
+.view-tab.active .badge {
+  background: rgba(255, 255, 255, 0.22);
+  color: inherit;
+}
+
+.spa-view:focus {
+  outline: none;
+}
+
+.spa-view.inactive {
+  /* MANDATORY: Use hidden to cache the rendering state of inactive views */
+  content-visibility: hidden;
+  position: absolute;
+  inline-size: 0;
+  block-size: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+@supports not (content-visibility: hidden) {
+  .spa-view.inactive {
+    display: none;
+  }
+}
+
+.kpi-clickable {
+  cursor: pointer;
+  transition: transform 0.12s ease, border-color 0.15s ease;
+}
+
+.kpi-clickable:hover {
+  transform: translateY(-1px);
+  border-color: var(--color-brand);
 }
 
 .brand-group {

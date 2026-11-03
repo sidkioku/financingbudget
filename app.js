@@ -520,6 +520,13 @@ function renderApp() {
   // Month label
   document.getElementById('currentMonthLabel').textContent = formatMonthLabel(activeMonthKey);
 
+  // Update Fixed Bills tab badge count
+  const openBillsCount = state.fixedBills.length - m.paidCount;
+  const tabFixedOpenBadge = document.getElementById('tabFixedOpenBadge');
+  if (tabFixedOpenBadge) {
+    tabFixedOpenBadge.textContent = openBillsCount > 0 ? `${openBillsCount} offen` : '✓ bezahlt';
+  }
+
   // Hero Safe-to-Spend
   const safeEl = document.getElementById('safeToSpendValue');
   safeEl.textContent = formatEUR(m.safeToSpend);
@@ -1092,6 +1099,36 @@ function setupModernDialogs() {
   }
 }
 
+function switchToView(viewId) {
+  // Hide all views
+  document.querySelectorAll('.spa-view').forEach((view) => {
+    view.classList.add('inactive');
+    view.setAttribute('aria-hidden', 'true');
+    view.setAttribute('inert', 'inert');
+  });
+
+  // Show the target view
+  const activeView = document.getElementById(viewId);
+  if (activeView) {
+    activeView.classList.remove('inactive');
+    activeView.setAttribute('aria-hidden', 'false');
+    activeView.removeAttribute('inert');
+    // Move focus to the new view to ensure a logical tab-order
+    activeView.focus();
+  }
+
+  // Update tab buttons
+  document.querySelectorAll('.view-tab').forEach((btn) => {
+    const isActive = btn.getAttribute('data-target-view') === viewId;
+    btn.classList.toggle('active', isActive);
+    if (isActive) {
+      btn.setAttribute('aria-current', 'page');
+    } else {
+      btn.removeAttribute('aria-current');
+    }
+  });
+}
+
 function bindEvents() {
   // Month navigation
   document.getElementById('prevMonthBtn').addEventListener('click', () => {
@@ -1117,6 +1154,18 @@ function bindEvents() {
 
   // Delegated clicks for lists and tables
   document.body.addEventListener('click', (e) => {
+    const tabBtn = e.target.closest('[data-target-view]');
+    if (tabBtn) {
+      switchToView(tabBtn.getAttribute('data-target-view'));
+      return;
+    }
+
+    const jumpCard = e.target.closest('[data-jump-view]');
+    if (jumpCard) {
+      switchToView(jumpCard.getAttribute('data-jump-view'));
+      return;
+    }
+
     const delExpBtn = e.target.closest('[data-del-expense]');
     if (delExpBtn) {
       const id = delExpBtn.getAttribute('data-del-expense');

@@ -42,211 +42,228 @@
       </div>
     </header>
 
-    <!-- Hero Grid: Safe-to-Spend + Instant Quick-Add -->
-    <section class="hero-grid" aria-label="Zyklusübersicht und Schnelleingabe">
-      <div class="card hero-main">
-        <div>
-          <p class="eyebrow">Frei verfügbar im aktuellen Zyklus (20. bis 20. &bull; nach Fixkosten)</p>
-          <p id="safeToSpendValue" class="big-amount positive">0,00 &euro;</p>
-          <div id="dailyAllowanceBadge" class="daily-allowance">
-            <span>Noch 0,00 &euro; / Tag bis zum nächsten 20.</span>
+    <!-- 2-Page Navigation Bar (Budget vs. Fixkosten) -->
+    <nav class="view-switcher" aria-label="Ansicht wechseln">
+      <button type="button" id="tabBudgetBtn" class="view-tab active" data-target-view="view-budget" aria-current="page">
+        💳 Budget &amp; Alltag
+      </button>
+      <button type="button" id="tabFixedBtn" class="view-tab" data-target-view="view-fixed">
+        📅 Fixkosten &amp; Jahresplan
+        <span id="tabFixedOpenBadge" class="badge"></span>
+      </button>
+    </nav>
+
+    <!-- PAGE 1: BUDGET & ALLTAG -->
+    <div id="view-budget" class="spa-view" aria-hidden="false" tabindex="-1">
+      <!-- Hero Grid: Safe-to-Spend + Instant Quick-Add -->
+      <section class="hero-grid" aria-label="Zyklusübersicht und Schnelleingabe">
+        <div class="card hero-main">
+          <div>
+            <p class="eyebrow">Frei verfügbar im aktuellen Zyklus (20. bis 20. &bull; nach Fixkosten)</p>
+            <p id="safeToSpendValue" class="big-amount positive">0,00 &euro;</p>
+            <div id="dailyAllowanceBadge" class="daily-allowance">
+              <span>Noch 0,00 &euro; / Tag bis zum nächsten 20.</span>
+            </div>
+          </div>
+
+          <div>
+            <div class="progress-track" aria-hidden="true">
+              <div id="budgetProgressFill" class="progress-fill" style="inline-size: 0%"></div>
+            </div>
+            <div class="hero-submetrics">
+              <div>
+                <span class="submetric-label">Einnahmen (Zyklus)</span>
+                <span id="heroIncomeTotal" class="submetric-val">0,00 &euro;</span>
+              </div>
+              <div>
+                <span class="submetric-label">Fixkosten + Rücklage</span>
+                <span id="heroFixedBaseline" class="submetric-val">1.543,20 &euro;</span>
+              </div>
+              <div>
+                <span class="submetric-label">Variabel ausgegeben</span>
+                <span id="heroVariableSpent" class="submetric-val">0,00 &euro;</span>
+              </div>
+            </div>
           </div>
         </div>
 
-        <div>
-          <div class="progress-track" aria-hidden="true">
-            <div id="budgetProgressFill" class="progress-fill" style="inline-size: 0%"></div>
+        <div class="card quick-add-card">
+          <div>
+            <p class="eyebrow">Schnell-Ausgabe (oder automatisch per Apple Pay)</p>
+            <form id="quickExpenseForm" class="quick-form">
+              <input
+                type="text"
+                inputmode="decimal"
+                id="quickAmountInput"
+                class="input input-amount"
+                placeholder="Betrag €"
+                aria-label="Ausgabenbetrag in Euro"
+                required
+              >
+              <input
+                type="text"
+                id="quickNoteInput"
+                class="input"
+                placeholder="Optional: Notiz / Händler"
+                aria-label="Optionale Notiz oder Händler"
+              >
+              <button type="submit" class="btn btn-primary" aria-label="Ausgabe speichern">+ Buchen</button>
+            </form>
           </div>
-          <div class="hero-submetrics">
-            <div>
-              <span class="submetric-label">Einnahmen (Zyklus)</span>
-              <span id="heroIncomeTotal" class="submetric-val">0,00 &euro;</span>
-            </div>
-            <div>
-              <span class="submetric-label">Fixkosten + Rücklage</span>
-              <span id="heroFixedBaseline" class="submetric-val">1.543,20 &euro;</span>
-            </div>
-            <div>
-              <span class="submetric-label">Variabel ausgegeben</span>
-              <span id="heroVariableSpent" class="submetric-val">0,00 &euro;</span>
-            </div>
+
+          <div class="quick-actions-row">
+            <button type="button" id="openReconcileBtn" class="btn">
+              🏖️ Urlaub / Konto-Abgleich
+            </button>
+            <button type="button" id="openNotifyDialogBtn" class="btn">
+              🔔 Handy-Mitteilungen
+            </button>
+            <button type="button" id="openShortcutGuideBtn" class="btn">
+              📱 Apple Pay &amp; Sync
+            </button>
           </div>
         </div>
-      </div>
+      </section>
 
-      <div class="card quick-add-card">
-        <div>
-          <p class="eyebrow">Schnell-Ausgabe (oder automatisch per Apple Pay)</p>
-          <form id="quickExpenseForm" class="quick-form">
-            <input
-              type="text"
-              inputmode="decimal"
-              id="quickAmountInput"
-              class="input input-amount"
-              placeholder="Betrag €"
-              aria-label="Ausgabenbetrag in Euro"
-              required
-            >
-            <input
-              type="text"
-              id="quickNoteInput"
-              class="input"
-              placeholder="Optional: Notiz / Händler"
-              aria-label="Optionale Notiz oder Händler"
-            >
-            <button type="submit" class="btn btn-primary" aria-label="Ausgabe speichern">+ Buchen</button>
-          </form>
+      <!-- 4-KPI Summary Strip -->
+      <section class="kpi-grid" aria-label="Finanz-Kennzahlen im aktuellen Monat">
+        <div class="kpi-card">
+          <p class="eyebrow">Bereits verbraucht (Zyklus)</p>
+          <p id="kpiTotalUsed" class="kpi-value">0,00 &euro;</p>
+          <p id="kpiTotalUsedMeta" class="kpi-meta">0,00 &euro; Fixkosten abgebucht + 0,00 &euro; variabel</p>
         </div>
 
-        <div class="quick-actions-row">
-          <button type="button" id="openReconcileBtn" class="btn">
-            🏖️ Urlaub / Konto-Abgleich
-          </button>
-          <button type="button" id="openNotifyDialogBtn" class="btn">
-            🔔 Handy-Mitteilungen
-          </button>
-          <button type="button" id="openShortcutGuideBtn" class="btn">
-            📱 Apple Pay &amp; Sync
-          </button>
+        <div class="kpi-card kpi-clickable" data-jump-view="view-fixed" title="Zur Fixkosten-Seite wechseln">
+          <p class="eyebrow">Offene Fixkosten (Restbetrag) &rarr;</p>
+          <p id="kpiRestbetrag" class="kpi-value">0,00 &euro;</p>
+          <p id="kpiRestbetragMeta" class="kpi-meta">Geht in diesem Zyklus noch vom Konto ab</p>
         </div>
-      </div>
-    </section>
 
-    <!-- 4-KPI Summary Strip -->
-    <section class="kpi-grid" aria-label="Finanz-Kennzahlen im aktuellen Monat">
-      <div class="kpi-card">
-        <p class="eyebrow">Bereits verbraucht (Monat)</p>
-        <p id="kpiTotalUsed" class="kpi-value">0,00 &euro;</p>
-        <p id="kpiTotalUsedMeta" class="kpi-meta">0,00 &euro; Fixkosten abgebucht + 0,00 &euro; variabel</p>
-      </div>
+        <div class="kpi-card">
+          <p class="eyebrow">Erwartete Einnahmen (Offen)</p>
+          <p id="kpiExpectedIncome" class="kpi-value">0,00 &euro;</p>
+          <p id="kpiExpectedIncomeMeta" class="kpi-meta">Nächster Geldeingang</p>
+        </div>
 
-      <div class="kpi-card">
-        <p class="eyebrow">Offene Fixkosten (Restbetrag)</p>
-        <p id="kpiRestbetrag" class="kpi-value">0,00 &euro;</p>
-        <p id="kpiRestbetragMeta" class="kpi-meta">Geht diesen Monat noch vom Konto ab</p>
-      </div>
+        <div class="kpi-card kpi-clickable" data-jump-view="view-fixed" title="Zur Fixkosten-Seite wechseln">
+          <p class="eyebrow">Glättung Jahreszahlungen &rarr;</p>
+          <p id="kpiAnnualReserve" class="kpi-value">49,68 &euro;</p>
+          <p id="kpiAnnualReserveMeta" class="kpi-meta">596,11 &euro;/Jahr + 18,36 &euro;/Mo GEZ</p>
+        </div>
+      </section>
 
-      <div class="kpi-card">
-        <p class="eyebrow">Erwartete Einnahmen (Offen)</p>
-        <p id="kpiExpectedIncome" class="kpi-value">0,00 &euro;</p>
-        <p id="kpiExpectedIncomeMeta" class="kpi-meta">Nächster Geldeingang</p>
-      </div>
+      <!-- Two-Column Lists: Variable Expenses & Expected Income -->
+      <section class="content-grid" aria-label="Variable Ausgaben und Einnahmen">
+        <!-- Variable Expenses List -->
+        <div class="card">
+          <div class="section-header">
+            <div>
+              <h2 class="section-title">Variable Ausgaben (Alltag &amp; Urlaub)</h2>
+              <p class="brand-subtitle">Einzelbuchungen, Apple Pay &amp; Pauschalbeträge</p>
+            </div>
+            <span id="variableCountBadge" class="badge">0 Einträge</span>
+          </div>
 
-      <div class="kpi-card">
-        <p class="eyebrow">Glättung Jahreszahlungen</p>
-        <p id="kpiAnnualReserve" class="kpi-value">49,68 &euro;</p>
-        <p id="kpiAnnualReserveMeta" class="kpi-meta">596,11 &euro;/Jahr + 18,36 &euro;/Mo GEZ</p>
-      </div>
-    </section>
+          <ul id="variableExpenseList" class="item-list" aria-live="polite"></ul>
+        </div>
 
-    <!-- Dynamic Notice Banner for Quarterly / Annual Actual Debits -->
-    <div id="specialDebitBanner" class="notice-banner" hidden>
-      <span id="specialDebitText"></span>
+        <!-- Income & Expected Payments -->
+        <div class="card">
+          <div class="section-header">
+            <div>
+              <h2 class="section-title">Einnahmen &amp; Erwartete Zahlungen</h2>
+              <p class="brand-subtitle">Was kommt wann im aktuellen Zyklus rein?</p>
+            </div>
+            <button type="button" id="openIncomeDialogBtn" class="btn">+ Einnahme / Gehalt</button>
+          </div>
+
+          <ul id="incomeList" class="item-list" aria-live="polite"></ul>
+        </div>
+      </section>
     </div>
 
-    <!-- Two-Column Lists: Variable Expenses & Expected Income -->
-    <section class="content-grid" aria-label="Variable Ausgaben und Einnahmen">
-      <!-- Variable Expenses List -->
-      <div class="card">
+    <!-- PAGE 2: FIXKOSTEN & JAHRESPLAN -->
+    <div id="view-fixed" class="spa-view inactive" aria-hidden="true" inert="inert" tabindex="-1">
+      <!-- Dynamic Notice Banner for Quarterly / Annual Actual Debits -->
+      <div id="specialDebitBanner" class="notice-banner" hidden>
+        <span id="specialDebitText"></span>
+      </div>
+
+      <!-- FixedMonthly Bills Table (Monatliche_Ausgaben.numbers) -->
+      <section class="card" style="margin-block-end: 1.2rem;" aria-labelledby="fixed-bills-heading">
         <div class="section-header">
           <div>
-            <h2 class="section-title">Variable Ausgaben (Alltag &amp; Urlaub)</h2>
-            <p class="brand-subtitle">Einzelbuchungen, Apple Pay &amp; Pauschalbeträge</p>
+            <h2 id="fixed-bills-heading" class="section-title">Monatliche Fixkosten (20. bis 20. Zyklus)</h2>
+            <p class="brand-subtitle">Haken wird am Bankarbeitstag automatisch gesetzt &bull; Klick zum Überschreiben</p>
           </div>
-          <span id="variableCountBadge" class="badge">0 Einträge</span>
+          <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+            <button type="button" id="resetOverridesBtn" class="btn btn-ghost" title="Manuelle Haken für diesen Zyklus auf Automatik zurücksetzen">↻ Auto-Status</button>
+            <button type="button" id="addFixedBillBtn" class="btn">+ Fixkosten</button>
+          </div>
         </div>
 
-        <ul id="variableExpenseList" class="item-list" aria-live="polite"></ul>
-      </div>
+        <div tabindex="0" role="region" aria-labelledby="fixed-table-caption" class="table-wrapper">
+          <table class="fixed-table">
+            <caption id="fixed-table-caption">Monatliche Fixkosten und Restbetrag im aktuellen Zyklus</caption>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Bezahlt?</th>
+                <th class="num-col">Betrag</th>
+                <th class="num-col">Restbetrag</th>
+                <th>Monatstag</th>
+                <th class="num-col">Aktion</th>
+              </tr>
+            </thead>
+            <tbody id="fixedBillsTbody"></tbody>
+            <tfoot>
+              <tr>
+                <th>Summe Monatliche Fixkosten</th>
+                <td id="fixedPaidCountCell"></td>
+                <td id="fixedTotalAmountCell" class="num-col">1.493,52 &euro;</td>
+                <td id="fixedTotalRestCell" class="num-col">0,00 &euro;</td>
+                <td colspan="2"></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </section>
 
-      <!-- Income & Expected Payments -->
-      <div class="card">
+      <!-- Annual Bills Table (Jährliche Zahlung aus Numbers) -->
+      <section class="card" aria-labelledby="annual-bills-heading">
         <div class="section-header">
           <div>
-            <h2 class="section-title">Einnahmen &amp; Erwartete Zahlungen</h2>
-            <p class="brand-subtitle">Was kommt wann rein?</p>
+            <h2 id="annual-bills-heading" class="section-title">Jährliche Zahlungen (Sinking Fund)</h2>
+            <p class="brand-subtitle">Wird monatlich geglättet zurückgelegt, damit jeder Zyklus gleich bleibt</p>
           </div>
-          <button type="button" id="openIncomeDialogBtn" class="btn">+ Einnahme / Gehalt</button>
+          <button type="button" id="addAnnualBillBtn" class="btn">+ Jährliche Zahlung</button>
         </div>
 
-        <ul id="incomeList" class="item-list" aria-live="polite"></ul>
-      </div>
-    </section>
-
-    <!-- Fixed Monthly Bills Table (Monatliche_Ausgaben.numbers) -->
-    <section class="card" style="margin-block-end: 1.2rem;" aria-labelledby="fixed-bills-heading">
-      <div class="section-header">
-        <div>
-          <h2 id="fixed-bills-heading" class="section-title">Monatliche Fixkosten (automatisch nach Monatstag)</h2>
-          <p class="brand-subtitle">Haken wird am Fälligkeitstag automatisch gesetzt &bull; Klick zum Überschreiben</p>
+        <div tabindex="0" role="region" aria-labelledby="annual-table-caption" class="table-wrapper">
+          <table class="annual-table">
+            <caption id="annual-table-caption">Jährliche Zahlungen und monatliche Rücklage</caption>
+            <thead>
+              <tr>
+                <th>Grund</th>
+                <th class="num-col">Jährliche Zahlung</th>
+                <th class="num-col">Monats-Rücklage (&divide;12)</th>
+                <th>Datum / Monat</th>
+                <th class="num-col">Aktion</th>
+              </tr>
+            </thead>
+            <tbody id="annualBillsTbody"></tbody>
+            <tfoot>
+              <tr>
+                <th>Summe Jährliche Zahlungen</th>
+                <td id="annualTotalCell" class="num-col">596,11 &euro;</td>
+                <td id="annualMonthlyReserveCell" class="num-col">49,68 &euro;</td>
+                <td colspan="2"></td>
+              </tr>
+            </tfoot>
+          </table>
         </div>
-        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-          <button type="button" id="resetOverridesBtn" class="btn btn-ghost" title="Manuelle Haken für diesen Monat auf Automatik zurücksetzen">↻ Auto-Status</button>
-          <button type="button" id="addFixedBillBtn" class="btn">+ Fixkosten</button>
-        </div>
-      </div>
-
-      <div tabindex="0" role="region" aria-labelledby="fixed-table-caption" class="table-wrapper">
-        <table class="fixed-table">
-          <caption id="fixed-table-caption">Monatliche Fixkosten und Restbetrag im aktuellen Monat</caption>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Bezahlt?</th>
-              <th class="num-col">Betrag</th>
-              <th class="num-col">Restbetrag</th>
-              <th>Monatstag</th>
-              <th class="num-col">Aktion</th>
-            </tr>
-          </thead>
-          <tbody id="fixedBillsTbody"></tbody>
-          <tfoot>
-            <tr>
-              <th>Summe Monatliche Fixkosten</th>
-              <td id="fixedPaidCountCell"></td>
-              <td id="fixedTotalAmountCell" class="num-col">1.493,52 &euro;</td>
-              <td id="fixedTotalRestCell" class="num-col">0,00 &euro;</td>
-              <td colspan="2"></td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-    </section>
-
-    <!-- Annual Bills Table (Jährliche Zahlung aus Numbers) -->
-    <section class="card" aria-labelledby="annual-bills-heading">
-      <div class="section-header">
-        <div>
-          <h2 id="annual-bills-heading" class="section-title">Jährliche Zahlungen (Sinking Fund)</h2>
-          <p class="brand-subtitle">Wird monatlich geglättet zurückgelegt, damit jeder Monat gleich bleibt</p>
-        </div>
-        <button type="button" id="addAnnualBillBtn" class="btn">+ Jährliche Zahlung</button>
-      </div>
-
-      <div tabindex="0" role="region" aria-labelledby="annual-table-caption" class="table-wrapper">
-        <table class="annual-table">
-          <caption id="annual-table-caption">Jährliche Zahlungen und monatliche Rücklage</caption>
-          <thead>
-            <tr>
-              <th>Grund</th>
-              <th class="num-col">Jährliche Zahlung</th>
-              <th class="num-col">Monats-Rücklage (&divide;12)</th>
-              <th>Datum / Monat</th>
-              <th class="num-col">Aktion</th>
-            </tr>
-          </thead>
-          <tbody id="annualBillsTbody"></tbody>
-          <tfoot>
-            <tr>
-              <th>Summe Jährliche Zahlungen</th>
-              <td id="annualTotalCell" class="num-col">596,11 &euro;</td>
-              <td id="annualMonthlyReserveCell" class="num-col">49,68 &euro;</td>
-              <td colspan="2"></td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-    </section>
+      </section>
+    </div>
   </div>
 
   <!-- MODAL 1: Urlaubs-Pauschale & 5-Sekunden Kontostand-Abgleich -->
