@@ -9,7 +9,7 @@ const DEFAULT_FIXED_BILLS = [
   { id: 'gen-basis', name: 'Generali Basisrente', amount: 133.11, dayLabel: '01.' },
   { id: 'icloud', name: 'iCloud', amount: 9.99, dayLabel: 'Kreditkartenabrechnung' },
   { id: 'mobil', name: 'Mobil', amount: 17.49, dayLabel: '16.' },
-  { id: 'gez', name: 'Rundfunkgebühren', amount: 18.36, dayLabel: '15.01.,15.04.,15.07.,15.10.', quarterlyActual: 55.08 },
+  { id: 'gez', name: 'Rundfunkgebühren', amount: 55.08, dayLabel: '15.01.,15.04.,15.07.,15.10.', quarterlyActual: 55.08 },
   { id: 'strom', name: 'Strom', amount: 66.00, dayLabel: '15.' },
   { id: 'gen-haft', name: 'Generali Privathaftpflicht', amount: 10.66, dayLabel: '02.' },
   { id: 'gen-zahn', name: 'Generali Zahnzusatzversicherung', amount: 35.50, dayLabel: '02.' },
@@ -379,12 +379,55 @@ function getEffectiveSalaryDate(year, monthOneBased) {
 }
 
 /**
- * Computes both nominal and effective (Werktag-adjusted) due dates for a bill within the 20. -> 20. cycle
+ * Computes both nominal and effective (Werktag-adjusted) due dates for a bill within the 20. -> 20. cycle.
+ * For periodic/quarterly bills (e.g. "15.01.,15.04.,15.07.,15.10."), only returns a schedule if
+ * one of its payment dates actually falls within the active cycle bounds; otherwise returns null.
  */
 function getBillScheduleInCycle(bill, monthKey) {
+  const { start, end } = getCycleBounds(monthKey);
+  const [y, m] = monthKey.split('-').map(Number);
+
+  // 1. Check if bill specifies explicit quarterly or multi-month dates (e.g. "15.01.,15.04.,15.07.,15.10.")
+  const multiDateMatches = Array.from((bill.dayLabel || '').matchAll(/(\d{1,2})\.(\d{1,2})\.?/g));
+  if (multiDateMatches.length > 1) {
+    const candidateYears = [y, y + 1, y - 1];
+    let matchedDate = null;
+    let matchedDayLabel = null;
+
+    for (const match of multiDateMatches) {
+      const d = Number.parseInt(match[1], 10);
+      const mo = Number.parseInt(match[2], 10);
+      for (const cy of candidateYears) {
+        const candidate = new Date(cy, mo - 1, d, 0, 0, 0, 0);
+        if (candidate >= start && candidate <= end) {
+          matchedDate = candidate;
+          matchedDayLabel = `${String(d).padStart(2, '0')}.${String(mo).padStart(2, '0')}.`;
+          break;
+        }
+      }
+      if (matchedDate) break;
+    }
+
+    if (!matchedDate) {
+      // Not due in this cycle!
+      return null;
+    }
+
+    const effectiveDate = shiftToNextBusinessDay(matchedDate);
+    const amount = bill.quarterlyActual || bill.amount;
+    return {
+      nominalDate: matchedDate,
+      effectiveDate,
+      amount,
+      dayLabel: matchedDayLabel,
+      isQuarterly: true,
+      shifted: !isSameCalendarDay(matchedDate, effectiveDate)
+    };
+  }
+
+  // 2. Regular monthly bill
   const billingDay = resolveBillingDay(bill.dayLabel);
   if (!billingDay) return null;
-  const [y, m] = monthKey.split('-').map(Number);
   const startDay = getCycleStartDay();
   let nominalDate;
   if (billingDay >= startDay) {
@@ -398,6 +441,9 @@ function getBillScheduleInCycle(bill, monthKey) {
   return {
     nominalDate,
     effectiveDate,
+    amount: bill.amount,
+    dayLabel: bill.dayLabel,
+    isQuarterly: false,
     shifted: !isSameCalendarDay(nominalDate, effectiveDate)
   };
 }
@@ -443,24 +489,36 @@ function isSalaryReceivedInMonth(monthKey) {
 
 function computeMonthMetrics(monthKey) {
   const monthRec = ensureMonthRecord(monthKey);
-  const fixedTotal = state.fixedBills.reduce((acc, b) => acc + b.amount, 0);
+
+  // Only include fixed bills that are actually scheduled in this cycle (filters out off-cycle quarterly bills)
+  const activeBillsInCycle = [];
+  for (const bill of state.fixedBills) {
+    const sched = getBillScheduleInCycle(bill, monthKey);
+    if (sched) {
+      activeBillsInCycle.push({ bill, sched });
+    }
+  }
+
+  const fixedTotal = Math.round(activeBillsInCycle.reduce((acc, item) => acc + item.sched.amount, 0) * 100) / 100;
   const annualTotal = state.annualBills.reduce((acc, b) => acc + b.amount, 0);
   const annualMonthlyReserve = Math.round((annualTotal / 12) * 100) / 100;
-  const fixedBaselineWithReserve = fixedTotal + annualMonthlyReserve;
+  const fixedBaselineWithReserve = Math.round((fixedTotal + annualMonthlyReserve) * 100) / 100;
 
   let fixedPaidSoFar = 0;
   let fixedRestbetrag = 0;
   let paidCount = 0;
 
-  for (const bill of state.fixedBills) {
+  for (const { bill, sched } of activeBillsInCycle) {
     const paid = isBillPaidInMonth(bill, monthKey);
     if (paid) {
-      fixedPaidSoFar += bill.amount;
+      fixedPaidSoFar += sched.amount;
       paidCount += 1;
     } else {
-      fixedRestbetrag += bill.amount;
+      fixedRestbetrag += sched.amount;
     }
   }
+  fixedPaidSoFar = Math.round(fixedPaidSoFar * 100) / 100;
+  fixedRestbetrag = Math.round(fixedRestbetrag * 100) / 100;
 
   const variableSpent = monthRec.expenses.reduce((acc, e) => acc + e.amount, 0);
   const baseSalary = Number(state.settings.baseSalary) || 0;
@@ -489,6 +547,7 @@ function computeMonthMetrics(monthKey) {
     fixedPaidSoFar,
     fixedRestbetrag,
     paidCount,
+    activeBillsCount: activeBillsInCycle.length,
     variableSpent,
     baseSalary,
     salaryReceived,
@@ -521,7 +580,7 @@ function renderApp() {
   document.getElementById('currentMonthLabel').textContent = formatMonthLabel(activeMonthKey);
 
   // Update Fixed Bills tab badge count
-  const openBillsCount = state.fixedBills.length - m.paidCount;
+  const openBillsCount = m.activeBillsCount - m.paidCount;
   const tabFixedOpenBadge = document.getElementById('tabFixedOpenBadge');
   if (tabFixedOpenBadge) {
     tabFixedOpenBadge.textContent = openBillsCount > 0 ? `${openBillsCount} offen` : '✓ bezahlt';
@@ -564,7 +623,7 @@ function renderApp() {
   setTxt('kpiTotalUsedMeta', `${formatEUR(m.fixedPaidSoFar)} Fixkosten abgebucht + ${formatEUR(m.variableSpent)} variabel`);
 
   setTxt('kpiRestbetrag', formatEUR(m.fixedRestbetrag));
-  setTxt('kpiRestbetragMeta', `${state.fixedBills.length - m.paidCount} von ${state.fixedBills.length} Fixkosten diesen Monat noch offen`);
+  setTxt('kpiRestbetragMeta', `${m.activeBillsCount - m.paidCount} von ${m.activeBillsCount} Fixkosten diesen Monat noch offen`);
 
   setTxt('kpiExpectedIncome', formatEUR(m.pendingIncomeTotal));
   const nextIncomeHint = !m.salaryReceived
@@ -573,17 +632,13 @@ function renderApp() {
   setTxt('kpiExpectedIncomeMeta', nextIncomeHint);
 
   setTxt('kpiAnnualReserve', formatEUR(m.annualMonthlyReserve));
-  setTxt('kpiAnnualReserveMeta', `${formatEUR(m.annualTotal)}/Jahr ÷ 12 (inkl. 18,36 €/Mo GEZ in Fixkosten)`);
+  setTxt('kpiAnnualReserveMeta', `${formatEUR(m.annualTotal)}/Jahr ÷ 12 monatliche Rücklage`);
 
-  // Special Debit Notice Banner (Quarterly GEZ or Annual bills falling in active 20.->20. cycle)
+  // Special Debit Notice Banner (Annual bills falling in active 20.->20. cycle)
   const { start: cycStart, end: cycEnd } = getCycleBounds(activeMonthKey);
   const startMonthNum = cycStart.getMonth() + 1;
   const endMonthNum = cycEnd.getMonth() + 1;
   const dueNotices = [];
-  // GEZ is debited on the 15th of Jan/Apr/Jul/Oct, which falls in the second half (endMonthNum) of a 20.->19. cycle
-  if ([1, 4, 7, 10].includes(endMonthNum)) {
-    dueNotices.push(`Rundfunkbeitrag Quartalsabbuchung (55,08 € am 15.${String(endMonthNum).padStart(2, '0')}.)`);
-  }
   for (const ann of state.annualBills) {
     if (ann.month === startMonthNum || ann.month === endMonthNum) {
       dueNotices.push(`${ann.name} (${formatEUR(ann.amount)} — ${ann.dateLabel})`);
@@ -593,7 +648,7 @@ function renderApp() {
   if (dueNotices.length > 0) {
     bannerEl.hidden = false;
     document.getElementById('specialDebitText').innerHTML =
-      `<strong>📌 Hinweis für Zyklus ${formatMonthLabel(activeMonthKey)}:</strong> Tatsächliche Abbuchung aus deiner Rücklage: ${dueNotices.join(' • ')}`;
+      `<strong>📌 Hinweis für Zyklus ${formatMonthLabel(activeMonthKey)}:</strong> Tatsächliche Abbuchung aus deiner Jahres-Rücklage: ${dueNotices.join(' • ')}`;
   } else {
     bannerEl.hidden = true;
   }
@@ -682,52 +737,61 @@ function renderApp() {
 
   // Fixed Bills (Clean, mobile-first List) — sorted chronologically within the 20. -> 20. cycle
   const fixedListEl = document.getElementById('fixedBillsList');
-  const sortedFixedBills = [...state.fixedBills].sort((a, b) => {
-    const sA = getBillScheduleInCycle(a, activeMonthKey);
-    const sB = getBillScheduleInCycle(b, activeMonthKey);
-    if (!sA && !sB) return 0;
-    if (!sA) return 1;
-    if (!sB) return -1;
-    return sA.nominalDate.getTime() - sB.nominalDate.getTime();
-  });
+  const activeFixed = [];
+  for (const bill of state.fixedBills) {
+    const sched = getBillScheduleInCycle(bill, activeMonthKey);
+    if (sched) {
+      activeFixed.push({ bill, sched });
+    }
+  }
+  activeFixed.sort((a, b) => a.sched.nominalDate.getTime() - b.sched.nominalDate.getTime());
 
   if (fixedListEl) {
     fixedListEl.innerHTML = '';
-    for (const bill of sortedFixedBills) {
-      const paid = isBillPaidInMonth(bill, activeMonthKey);
-      const hasManualOverride = Object.prototype.hasOwnProperty.call(monthRec.paidOverrides, bill.id);
-      const sched = getBillScheduleInCycle(bill, activeMonthKey);
-      const shiftBadge = sched && sched.shifted
-        ? `<span class="badge" style="margin-inline-start:0.35rem;" title="Wegen Wochenende/Feiertag nächster Bankarbeitstag">⏳ ${wdFmt.format(sched.effectiveDate)}</span>`
-        : '';
-      const li = document.createElement('li');
-      li.className = 'item-row';
-      if (paid) li.classList.add('row-paid');
-      const chkId = `chk-bill-${bill.id}`;
-      li.innerHTML = `
-        <label class="checkbox-label" for="${chkId}" style="min-block-size: 38px;">
-          <input type="checkbox" class="checkbox-custom" id="${chkId}" data-toggle-bill="${escapeHtml(bill.id)}" ${paid ? 'checked' : ''}>
-          <div>
-            <span class="item-title ${paid ? 'text-muted' : ''}" style="display:block;">
-              ${escapeHtml(bill.name)}
-              ${bill.quarterlyActual ? `<span class="badge" title="Quartalsweise 55,08 €">${formatEUR(bill.quarterlyActual)} / Quartal</span>` : ''}
-            </span>
-            <span class="item-sub">
-              Fällig: ${escapeHtml(bill.dayLabel || '—')}${shiftBadge}
-              ${paid ? ' &bull; Bezahlt ✓' : ''}${hasManualOverride ? ' *' : ''}
-            </span>
+    if (activeFixed.length === 0) {
+      const emptyLi = document.createElement('li');
+      emptyLi.className = 'brand-subtitle';
+      emptyLi.style.padding = '0.75rem 0.25rem';
+      emptyLi.textContent = 'Keine Fixkosten in diesem Zyklus fällig.';
+      fixedListEl.appendChild(emptyLi);
+    } else {
+      for (const { bill, sched } of activeFixed) {
+        const paid = isBillPaidInMonth(bill, activeMonthKey);
+        const hasManualOverride = Object.prototype.hasOwnProperty.call(monthRec.paidOverrides, bill.id);
+        const shiftBadge = sched.shifted
+          ? `<span class="badge" style="margin-inline-start:0.35rem;" title="Wegen Wochenende/Feiertag nächster Bankarbeitstag">⏳ ${wdFmt.format(sched.effectiveDate)}</span>`
+          : '';
+        const quarterlyBadge = sched.isQuarterly
+          ? `<span class="badge" style="margin-inline-start:0.35rem;" title="Wird nur quartalsweise in diesem Zyklus abgebucht">Quartalsweise</span>`
+          : '';
+        const li = document.createElement('li');
+        li.className = 'item-row';
+        if (paid) li.classList.add('row-paid');
+        const chkId = `chk-bill-${bill.id}`;
+        li.innerHTML = `
+          <label class="checkbox-label" for="${chkId}" style="min-block-size: 38px;">
+            <input type="checkbox" class="checkbox-custom" id="${chkId}" data-toggle-bill="${escapeHtml(bill.id)}" ${paid ? 'checked' : ''}>
+            <div>
+              <span class="item-title ${paid ? 'text-muted' : ''}" style="display:block;">
+                ${escapeHtml(bill.name)}${quarterlyBadge}
+              </span>
+              <span class="item-sub">
+                Fällig: ${escapeHtml(sched.dayLabel || '—')}${shiftBadge}
+                ${paid ? ' &bull; Bezahlt ✓' : ''}${hasManualOverride ? ' *' : ''}
+              </span>
+            </div>
+          </label>
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <span class="item-amount ${paid ? 'amount-paid' : ''}">${formatEUR(sched.amount)}</span>
+            <button type="button" class="btn btn-ghost btn-danger" data-del-fixed="${escapeHtml(bill.id)}" aria-label="${escapeHtml(bill.name)} löschen">&times;</button>
           </div>
-        </label>
-        <div style="display: flex; align-items: center; gap: 0.5rem;">
-          <span class="item-amount ${paid ? 'amount-paid' : ''}">${formatEUR(bill.amount)}</span>
-          <button type="button" class="btn btn-ghost btn-danger" data-del-fixed="${escapeHtml(bill.id)}" aria-label="${escapeHtml(bill.name)} löschen">&times;</button>
-        </div>
-      `;
-      fixedListEl.appendChild(li);
+        `;
+        fixedListEl.appendChild(li);
+      }
     }
   }
 
-  setTxt('fixedPaidCountCell', `${m.paidCount}/${state.fixedBills.length} bezahlt`);
+  setTxt('fixedPaidCountCell', `${m.paidCount}/${m.activeBillsCount} bezahlt`);
   setTxt('fixedTotalAmountCell', formatEUR(m.fixedTotal));
   setTxt('fixedTotalRestCell', formatEUR(m.fixedRestbetrag));
 
@@ -1555,9 +1619,9 @@ function buildDailyNotificationPayload() {
     const sched = getBillScheduleInCycle(bill, todayKey);
     if (!sched) continue;
     if (isSameCalendarDay(sched.effectiveDate, todayMidnight)) {
-      dueToday.push(`${bill.name} (${formatEUR(bill.amount)})`);
+      dueToday.push(`${bill.name} (${formatEUR(sched.amount)})`);
     } else if (isSameCalendarDay(sched.effectiveDate, tomorrowMidnight)) {
-      dueTomorrow.push(`${bill.name} (${formatEUR(bill.amount)})`);
+      dueTomorrow.push(`${bill.name} (${formatEUR(sched.amount)})`);
     }
   }
 
@@ -1660,12 +1724,12 @@ function downloadUpcomingBillsIcs() {
         `UID:finanzplan-${bill.id}-${cycKey}@sidkioku.github.io`,
         `DTSTART;VALUE=DATE:${dStr}`,
         `DTEND;VALUE=DATE:${nextDStr}`,
-        `SUMMARY:💶 ${bill.name}: ${formatEUR(bill.amount)}`,
-        `DESCRIPTION:Monatliche Fixkosten-Abbuchung${shiftInfo}`,
+        `SUMMARY:💶 ${bill.name}: ${formatEUR(sched.amount)}`,
+        `DESCRIPTION:Fixkosten-Abbuchung${sched.isQuarterly ? ' (Quartalsweise)' : ''}${shiftInfo}`,
         'BEGIN:VALARM',
         'TRIGGER:PT9H',
         'ACTION:DISPLAY',
-        `DESCRIPTION:Heute fällig: ${bill.name} (${formatEUR(bill.amount)})`,
+        `DESCRIPTION:Heute fällig: ${bill.name} (${formatEUR(sched.amount)})`,
         'END:VALARM',
         'END:VEVENT'
       );
