@@ -160,19 +160,7 @@ body {
 }
 
 .spa-view.inactive {
-  /* MANDATORY: Use hidden to cache the rendering state of inactive views */
-  content-visibility: hidden;
-  position: absolute;
-  inline-size: 0;
-  block-size: 0;
-  overflow: hidden;
-  pointer-events: none;
-}
-
-@supports not (content-visibility: hidden) {
-  .spa-view.inactive {
-    display: none;
-  }
+  display: none !important;
 }
 
 .kpi-clickable {
