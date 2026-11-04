@@ -545,28 +545,35 @@ function renderApp() {
   fillEl.classList.toggle('warn', ratio >= 75 && ratio < 100);
   fillEl.classList.toggle('over', m.safeToSpend < 0);
 
-  document.getElementById('heroIncomeTotal').textContent = formatEUR(m.totalMonthlyIncome);
-  document.getElementById('heroFixedBaseline').textContent = formatEUR(m.fixedBaselineWithReserve);
-  document.getElementById('heroVariableSpent').textContent = formatEUR(m.variableSpent);
+  const progSumEl = document.getElementById('progressSummaryText');
+  if (progSumEl) {
+    progSumEl.textContent = `${formatEUR(m.variableSpent)} von ${formatEUR(m.freeBudgetTotal)} Budget verbraucht`;
+  }
 
-  // 4-KPI Strip
-  document.getElementById('kpiTotalUsed').textContent = formatEUR(m.totalUsedThisMonth);
-  document.getElementById('kpiTotalUsedMeta').textContent =
-    `${formatEUR(m.fixedPaidSoFar)} Fixkosten abgebucht + ${formatEUR(m.variableSpent)} variabel`;
+  const setTxt = (id, val) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = val;
+  };
 
-  document.getElementById('kpiRestbetrag').textContent = formatEUR(m.fixedRestbetrag);
-  document.getElementById('kpiRestbetragMeta').textContent =
-    `${state.fixedBills.length - m.paidCount} von ${state.fixedBills.length} Fixkosten diesen Monat noch offen`;
+  setTxt('heroIncomeTotal', formatEUR(m.totalMonthlyIncome));
+  setTxt('heroFixedBaseline', formatEUR(m.fixedBaselineWithReserve));
+  setTxt('heroVariableSpent', formatEUR(m.variableSpent));
 
-  document.getElementById('kpiExpectedIncome').textContent = formatEUR(m.pendingIncomeTotal);
+  // 4-KPI Strip / Details
+  setTxt('kpiTotalUsed', formatEUR(m.totalUsedThisMonth));
+  setTxt('kpiTotalUsedMeta', `${formatEUR(m.fixedPaidSoFar)} Fixkosten abgebucht + ${formatEUR(m.variableSpent)} variabel`);
+
+  setTxt('kpiRestbetrag', formatEUR(m.fixedRestbetrag));
+  setTxt('kpiRestbetragMeta', `${state.fixedBills.length - m.paidCount} von ${state.fixedBills.length} Fixkosten diesen Monat noch offen`);
+
+  setTxt('kpiExpectedIncome', formatEUR(m.pendingIncomeTotal));
   const nextIncomeHint = !m.salaryReceived
     ? `Gehalt (${formatEUR(m.baseSalary)}) am ${state.settings.salaryDay}. erwartet`
     : (m.extraIncomesPending > 0 ? 'Offene Rückerstattungen erwartet' : 'Alle Einnahmen für diesen Monat erhalten ✓');
-  document.getElementById('kpiExpectedIncomeMeta').textContent = nextIncomeHint;
+  setTxt('kpiExpectedIncomeMeta', nextIncomeHint);
 
-  document.getElementById('kpiAnnualReserve').textContent = formatEUR(m.annualMonthlyReserve);
-  document.getElementById('kpiAnnualReserveMeta').textContent =
-    `${formatEUR(m.annualTotal)}/Jahr ÷ 12 (inkl. 18,36 €/Mo GEZ in Fixkosten)`;
+  setTxt('kpiAnnualReserve', formatEUR(m.annualMonthlyReserve));
+  setTxt('kpiAnnualReserveMeta', `${formatEUR(m.annualTotal)}/Jahr ÷ 12 (inkl. 18,36 €/Mo GEZ in Fixkosten)`);
 
   // Special Debit Notice Banner (Quarterly GEZ or Annual bills falling in active 20.->20. cycle)
   const { start: cycStart, end: cycEnd } = getCycleBounds(activeMonthKey);
@@ -673,9 +680,8 @@ function renderApp() {
     incListEl.appendChild(li);
   }
 
-  // Fixed Bills Table (Monatliche_Ausgaben.numbers) — sorted chronologically within the 20. -> 20. cycle
-  const fixedTbody = document.getElementById('fixedBillsTbody');
-  fixedTbody.innerHTML = '';
+  // Fixed Bills (Clean, mobile-first List) — sorted chronologically within the 20. -> 20. cycle
+  const fixedListEl = document.getElementById('fixedBillsList');
   const sortedFixedBills = [...state.fixedBills].sort((a, b) => {
     const sA = getBillScheduleInCycle(a, activeMonthKey);
     const sB = getBillScheduleInCycle(b, activeMonthKey);
@@ -685,63 +691,72 @@ function renderApp() {
     return sA.nominalDate.getTime() - sB.nominalDate.getTime();
   });
 
-  for (const bill of sortedFixedBills) {
-    const paid = isBillPaidInMonth(bill, activeMonthKey);
-    const rest = paid ? 0 : bill.amount;
-    const hasManualOverride = Object.prototype.hasOwnProperty.call(monthRec.paidOverrides, bill.id);
-    const sched = getBillScheduleInCycle(bill, activeMonthKey);
-    const shiftBadge = sched && sched.shifted
-      ? `<span class="badge" style="margin-inline-start:0.35rem;" title="Wegen Wochenende/Feiertag nächster Bankarbeitstag">⏳ ${wdFmt.format(sched.effectiveDate)}</span>`
-      : '';
-    const tr = document.createElement('tr');
-    if (paid) tr.classList.add('row-paid');
-    const chkId = `chk-bill-${bill.id}`;
-    tr.innerHTML = `
-      <th scope="row">
-        ${escapeHtml(bill.name)}
-        ${bill.quarterlyActual ? `<span class="badge" title="Quartalsweise 55,08 €">${formatEUR(bill.quarterlyActual)} / Quartal</span>` : ''}
-      </th>
-      <td>
-        <label class="checkbox-label" for="${chkId}">
+  if (fixedListEl) {
+    fixedListEl.innerHTML = '';
+    for (const bill of sortedFixedBills) {
+      const paid = isBillPaidInMonth(bill, activeMonthKey);
+      const hasManualOverride = Object.prototype.hasOwnProperty.call(monthRec.paidOverrides, bill.id);
+      const sched = getBillScheduleInCycle(bill, activeMonthKey);
+      const shiftBadge = sched && sched.shifted
+        ? `<span class="badge" style="margin-inline-start:0.35rem;" title="Wegen Wochenende/Feiertag nächster Bankarbeitstag">⏳ ${wdFmt.format(sched.effectiveDate)}</span>`
+        : '';
+      const li = document.createElement('li');
+      li.className = 'item-row';
+      if (paid) li.classList.add('row-paid');
+      const chkId = `chk-bill-${bill.id}`;
+      li.innerHTML = `
+        <label class="checkbox-label" for="${chkId}" style="min-block-size: 38px;">
           <input type="checkbox" class="checkbox-custom" id="${chkId}" data-toggle-bill="${escapeHtml(bill.id)}" ${paid ? 'checked' : ''}>
-          <span>${paid ? 'Bezahlt' : 'Offen'}${hasManualOverride ? ' *' : ''}</span>
+          <div>
+            <span class="item-title ${paid ? 'text-muted' : ''}" style="display:block;">
+              ${escapeHtml(bill.name)}
+              ${bill.quarterlyActual ? `<span class="badge" title="Quartalsweise 55,08 €">${formatEUR(bill.quarterlyActual)} / Quartal</span>` : ''}
+            </span>
+            <span class="item-sub">
+              Fällig: ${escapeHtml(bill.dayLabel || '—')}${shiftBadge}
+              ${paid ? ' &bull; Bezahlt ✓' : ''}${hasManualOverride ? ' *' : ''}
+            </span>
+          </div>
         </label>
-      </td>
-      <td class="num-col">${formatEUR(bill.amount)}</td>
-      <td class="num-col" style="font-weight: ${rest > 0 ? '700' : '400'};">${formatEUR(rest)}</td>
-      <td>${escapeHtml(bill.dayLabel || '—')}${shiftBadge}</td>
-      <td class="num-col">
-        <button type="button" class="btn btn-ghost btn-danger" data-del-fixed="${escapeHtml(bill.id)}" aria-label="${escapeHtml(bill.name)} löschen">&times;</button>
-      </td>
-    `;
-    fixedTbody.appendChild(tr);
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <span class="item-amount ${paid ? 'amount-paid' : ''}">${formatEUR(bill.amount)}</span>
+          <button type="button" class="btn btn-ghost btn-danger" data-del-fixed="${escapeHtml(bill.id)}" aria-label="${escapeHtml(bill.name)} löschen">&times;</button>
+        </div>
+      `;
+      fixedListEl.appendChild(li);
+    }
   }
 
-  document.getElementById('fixedPaidCountCell').textContent = `${m.paidCount}/${state.fixedBills.length} bezahlt`;
-  document.getElementById('fixedTotalAmountCell').textContent = formatEUR(m.fixedTotal);
-  document.getElementById('fixedTotalRestCell').textContent = formatEUR(m.fixedRestbetrag);
+  setTxt('fixedPaidCountCell', `${m.paidCount}/${state.fixedBills.length} bezahlt`);
+  setTxt('fixedTotalAmountCell', formatEUR(m.fixedTotal));
+  setTxt('fixedTotalRestCell', formatEUR(m.fixedRestbetrag));
 
-  // Annual Bills Table — sorted chronologically by month
-  const annualTbody = document.getElementById('annualBillsTbody');
-  annualTbody.innerHTML = '';
+  // Annual Bills (Clean, mobile-first List) — sorted chronologically by month
+  const annualListEl = document.getElementById('annualBillsList');
   const sortedAnnualBills = [...state.annualBills].sort((a, b) => (a.month || 99) - (b.month || 99));
-  for (const ann of sortedAnnualBills) {
-    const monthlyPart = ann.amount / 12;
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <th scope="row">${escapeHtml(ann.name)}</th>
-      <td class="num-col">${formatEUR(ann.amount)}</td>
-      <td class="num-col">${formatEUR(monthlyPart)} / Mo</td>
-      <td>${escapeHtml(ann.dateLabel || '—')}</td>
-      <td class="num-col">
-        <button type="button" class="btn btn-ghost btn-danger" data-del-annual="${escapeHtml(ann.id)}" aria-label="${escapeHtml(ann.name)} löschen">&times;</button>
-      </td>
-    `;
-    annualTbody.appendChild(tr);
+
+  if (annualListEl) {
+    annualListEl.innerHTML = '';
+    for (const ann of sortedAnnualBills) {
+      const monthlyPart = ann.amount / 12;
+      const li = document.createElement('li');
+      li.className = 'item-row';
+      li.innerHTML = `
+        <div>
+          <span class="item-title" style="display:block;">${escapeHtml(ann.name)}</span>
+          <span class="item-sub">Fällig: ${escapeHtml(ann.dateLabel || '—')} &bull; Rücklage: ${formatEUR(monthlyPart)} / Monat</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <span class="item-amount">${formatEUR(ann.amount)}</span>
+          <button type="button" class="btn btn-ghost btn-danger" data-del-annual="${escapeHtml(ann.id)}" aria-label="${escapeHtml(ann.name)} löschen">&times;</button>
+        </div>
+      `;
+      annualListEl.appendChild(li);
+    }
   }
 
-  document.getElementById('annualTotalCell').textContent = formatEUR(m.annualTotal);
-  document.getElementById('annualMonthlyReserveCell').textContent = `${formatEUR(m.annualMonthlyReserve)} / Mo`;
+  setTxt('annualTotalCell', formatEUR(m.annualTotal));
+  setTxt('annualMonthlyReserveCell', `${formatEUR(m.annualMonthlyReserve)} / Mo`);
 
   // Update Shortcut URL preview
   const baseUrl = window.location.origin + window.location.pathname;
@@ -1252,9 +1267,35 @@ function bindEvents() {
     showToast('↻ Status auf automatische Monatstag-Erkennung zurückgesetzt');
   });
 
+  // Modal 0: Tools & Settings Menu Dialog
+  const toolsDialog = document.getElementById('toolsDialog');
+  document.getElementById('openToolsBtn')?.addEventListener('click', () => {
+    toolsDialog?.showModal();
+  });
+  document.getElementById('closeToolsDialogBtn')?.addEventListener('click', () => {
+    toolsDialog?.close();
+  });
+
+  document.getElementById('toolReconcileTile')?.addEventListener('click', () => {
+    toolsDialog?.close();
+    openReconcileModal();
+  });
+  document.getElementById('toolNotifyTile')?.addEventListener('click', () => {
+    toolsDialog?.close();
+    openNotifyModal();
+  });
+  document.getElementById('toolSyncTile')?.addEventListener('click', () => {
+    toolsDialog?.close();
+    openSyncModal();
+  });
+  document.getElementById('toolSalaryTile')?.addEventListener('click', () => {
+    toolsDialog?.close();
+    openIncomeDialog();
+  });
+
   // Modal 1: Reconcile / Vacation Lump Sum
   const reconcileDialog = document.getElementById('reconcileDialog');
-  document.getElementById('openReconcileBtn').addEventListener('click', () => {
+  const openReconcileModal = () => {
     const m = computeMonthMetrics(activeMonthKey);
     const receivedCashSoFar = (m.salaryReceived ? m.baseSalary : 0) + m.extraIncomesTotal;
     const expectedAccountCash = receivedCashSoFar - m.fixedPaidSoFar - m.variableSpent;
@@ -1263,7 +1304,8 @@ function bindEvents() {
     document.getElementById('actualBankBalanceInput').value = '';
     document.getElementById('lumpSumAmountInput').value = '';
     reconcileDialog.showModal();
-  });
+  };
+  document.getElementById('openReconcileBtn')?.addEventListener('click', openReconcileModal);
 
   document.getElementById('applyBalanceReconcileBtn').addEventListener('click', () => {
     const actual = parseFlexibleAmount(document.getElementById('actualBankBalanceInput').value);
@@ -1405,8 +1447,8 @@ function bindEvents() {
     document.getElementById('gistTokenInput').value = syncConfig.gistToken || '';
     shortcutDialog.showModal();
   };
-  document.getElementById('openShortcutGuideBtn').addEventListener('click', openSyncModal);
-  document.getElementById('openSyncBtn').addEventListener('click', openSyncModal);
+  document.getElementById('openShortcutGuideBtn')?.addEventListener('click', openSyncModal);
+  document.getElementById('openSyncBtn')?.addEventListener('click', openSyncModal);
 
   document.getElementById('copyShortcutUrlBtn').addEventListener('click', async () => {
     const baseUrl = `${window.location.origin}${window.location.pathname}?add=`;
@@ -1467,11 +1509,12 @@ function bindEvents() {
 
   // Modal 5: Notifications & Calendar (.ics)
   const notifyDialog = document.getElementById('notifyDialog');
-  document.getElementById('openNotifyDialogBtn').addEventListener('click', () => {
+  const openNotifyModal = () => {
     const payload = buildDailyNotificationPayload();
     document.getElementById('notifyPreviewBox').textContent = `${payload.title}\n${payload.body}`;
     notifyDialog.showModal();
-  });
+  };
+  document.getElementById('openNotifyDialogBtn')?.addEventListener('click', openNotifyModal);
 
   document.getElementById('enablePushBtn').addEventListener('click', async () => {
     await triggerAppNotification({ force: true });
