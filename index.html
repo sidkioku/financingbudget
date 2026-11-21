@@ -361,6 +361,63 @@
     </form>
   </dialog>
 
+  <!-- MODAL 3b: Bestehenden Eintrag bearbeiten (Fixkosten, Jährlich, Ausgabe, Einnahme) -->
+  <dialog id="editEntryDialog" closedby="any" aria-labelledby="editEntryDialogTitle">
+    <div class="dialog-header">
+      <h2 id="editEntryDialogTitle" class="dialog-title">Eintrag bearbeiten</h2>
+      <button type="button" class="btn btn-ghost" id="closeEditEntryBtn" aria-label="Schließen">&times;</button>
+    </div>
+
+    <form id="editEntryForm" class="form-stack">
+      <input type="hidden" id="editEntryType" value="">
+      <input type="hidden" id="editEntryId" value="">
+
+      <div class="field-group">
+        <label id="editNameLabel" for="editNameInput">Bezeichnung</label>
+        <input type="text" id="editNameInput" class="input" required>
+      </div>
+
+      <div class="field-group">
+        <label for="editAmountInput">Betrag (&euro;)</label>
+        <input type="text" inputmode="decimal" id="editAmountInput" class="input input-amount" required>
+      </div>
+
+      <!-- Nur bei monatlichen Fixkosten: einmalig vs. dauerhaft -->
+      <div id="editScopeGroup" class="scope-box" hidden>
+        <span class="scope-heading">Betrag anpassen für:</span>
+        <label class="scope-option">
+          <input type="radio" name="editAmountScope" value="once" id="editScopeOnce">
+          <span>Nur diesen Zyklus (<span id="editScopeCycleLabel"></span>)</span>
+        </label>
+        <label class="scope-option">
+          <input type="radio" name="editAmountScope" value="always" id="editScopeAlways" checked>
+          <span>Dauerhaft (Standardbetrag für alle Zyklen)</span>
+        </label>
+        <button type="button" id="resetBillAmountOverrideBtn" class="text-btn text-btn-strong" hidden style="align-self: flex-start; margin-block-start: 0.2rem;">
+          Auf Standardbetrag zurücksetzen
+        </button>
+      </div>
+
+      <div id="editDayGroup" class="field-group">
+        <label id="editDayLabel" for="editDayInput">Monatstag</label>
+        <input type="text" id="editDayInput" class="input">
+      </div>
+
+      <div id="editDateGroup" class="field-group" hidden>
+        <label for="editDateInput">Erwartetes Datum</label>
+        <input type="date" id="editDateInput" class="input">
+      </div>
+
+      <div class="dialog-actions dialog-actions-split">
+        <button type="button" id="deleteEditEntryBtn" class="btn btn-danger-outline">Löschen</button>
+        <div style="display: flex; gap: 0.5rem;">
+          <button type="button" id="cancelEditEntryBtn" class="btn">Abbrechen</button>
+          <button type="submit" class="btn btn-primary">Speichern</button>
+        </div>
+      </div>
+    </form>
+  </dialog>
+
   <!-- MODAL 4: Apple Pay iPhone Automation & GitHub Gist Cloud-Sync -->
   <dialog id="shortcutDialog" closedby="any" aria-labelledby="shortcutDialogTitle">
     <div class="dialog-header">

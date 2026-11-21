@@ -250,8 +250,11 @@ function ensureMonthRecord(monthKey) {
       expenses: [],
       expectedIncomes: [],
       paidOverrides: {},
+      amountOverrides: {},
       salaryReceivedOverride: null
     };
+  } else if (!state.months[monthKey].amountOverrides) {
+    state.months[monthKey].amountOverrides = {};
   }
   return state.months[monthKey];
 }
@@ -415,11 +418,16 @@ function getBillScheduleInCycle(bill, monthKey) {
     }
 
     const effectiveDate = shiftToNextBusinessDay(matchedDate);
-    const amount = bill.quarterlyActual || bill.amount;
+    const defaultAmount = bill.quarterlyActual || bill.amount;
+    const overrides = state.months?.[monthKey]?.amountOverrides;
+    const hasAmountOverride = Boolean(overrides && Object.prototype.hasOwnProperty.call(overrides, bill.id) && Number.isFinite(Number(overrides[bill.id])));
+    const amount = hasAmountOverride ? Number(overrides[bill.id]) : defaultAmount;
     return {
       nominalDate: matchedDate,
       effectiveDate,
       amount,
+      defaultAmount,
+      hasAmountOverride,
       dayLabel: matchedDayLabel,
       isQuarterly: true,
       shifted: !isSameCalendarDay(matchedDate, effectiveDate)
@@ -439,10 +447,16 @@ function getBillScheduleInCycle(bill, monthKey) {
     nominalDate = new Date(y, m, Math.min(billingDay, maxDayNext), 0, 0, 0, 0);
   }
   const effectiveDate = shiftToNextBusinessDay(nominalDate);
+  const defaultAmount = bill.amount;
+  const overrides = state.months?.[monthKey]?.amountOverrides;
+  const hasAmountOverride = Boolean(overrides && Object.prototype.hasOwnProperty.call(overrides, bill.id) && Number.isFinite(Number(overrides[bill.id])));
+  const amount = hasAmountOverride ? Number(overrides[bill.id]) : defaultAmount;
   return {
     nominalDate,
     effectiveDate,
-    amount: bill.amount,
+    amount,
+    defaultAmount,
+    hasAmountOverride,
     dayLabel: bill.dayLabel,
     isQuarterly: false,
     shifted: !isSameCalendarDay(nominalDate, effectiveDate)
@@ -676,17 +690,24 @@ function renderApp() {
         const dayText = sched.shifted
           ? `${sched.dayLabel || '—'} → ${wdFmt.format(sched.effectiveDate)}`
           : (sched.dayLabel || '—');
-        const nameExtra = sched.isQuarterly ? ' <span class="row-sub-inline">(Quartal)</span>' : '';
+        const notes = [];
+        if (sched.isQuarterly) notes.push('Quartal');
+        if (sched.hasAmountOverride) notes.push('angepasst');
+        const nameExtra = notes.length > 0
+          ? ` <span class="row-sub-inline" title="Standard: ${formatEUR(sched.defaultAmount)}">(${notes.join(', ')})</span>`
+          : '';
         const overrideMark = hasManualOverride ? ' *' : '';
 
         const li = document.createElement('li');
-        li.className = `sheet-row${paid ? ' row-paid' : ''}`;
+        li.className = `sheet-row row-editable${paid ? ' row-paid' : ''}`;
+        li.setAttribute('data-edit-type', 'fixed');
+        li.setAttribute('data-edit-id', bill.id);
         const chkId = `chk-bill-${bill.id}`;
         li.innerHTML = `
           <span class="col-check">
             <input type="checkbox" class="row-checkbox" id="${chkId}" data-toggle-bill="${escapeHtml(bill.id)}" ${paid ? 'checked' : ''} aria-label="${escapeHtml(bill.name)} bezahlt">
           </span>
-          <label class="col-name" for="${chkId}" title="${escapeHtml(bill.name)}">${escapeHtml(bill.name)}${nameExtra}${overrideMark}</label>
+          <span class="col-name" title="${escapeHtml(bill.name)} — Tippen zum Bearbeiten">${escapeHtml(bill.name)}${nameExtra}${overrideMark}</span>
           <span class="col-day">${escapeHtml(dayText)}</span>
           <span class="col-amount">${formatEUR(sched.amount)}</span>
           <span class="col-action">
@@ -710,9 +731,11 @@ function renderApp() {
     for (const ann of sortedAnnualBills) {
       const monthlyPart = ann.amount / 12;
       const li = document.createElement('li');
-      li.className = 'sheet-row expense-row';
+      li.className = 'sheet-row expense-row row-editable';
+      li.setAttribute('data-edit-type', 'annual');
+      li.setAttribute('data-edit-id', ann.id);
       li.innerHTML = `
-        <span class="col-name">${escapeHtml(ann.name)} <span class="row-sub-inline">(${formatEUR(monthlyPart)}/Mo)</span></span>
+        <span class="col-name" title="Tippen zum Bearbeiten">${escapeHtml(ann.name)} <span class="row-sub-inline">(${formatEUR(monthlyPart)}/Mo)</span></span>
         <span class="col-day">${escapeHtml(ann.dateLabel || '—')}</span>
         <span class="col-amount">${formatEUR(ann.amount)}</span>
         <span class="col-action">
@@ -742,12 +765,14 @@ function renderApp() {
       const sorted = [...monthRec.expenses].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
       for (const item of sorted) {
         const li = document.createElement('li');
-        li.className = 'sheet-row expense-row';
+        li.className = 'sheet-row expense-row row-editable';
+        li.setAttribute('data-edit-type', 'expense');
+        li.setAttribute('data-edit-id', item.id);
         const srcHint = item.source && item.source !== 'Manuell'
           ? ` <span class="row-sub-inline">(${escapeHtml(item.source)})</span>`
           : '';
         li.innerHTML = `
-          <span class="col-name">${escapeHtml(item.note || 'Ausgabe')}${srcHint}</span>
+          <span class="col-name" title="Tippen zum Bearbeiten">${escapeHtml(item.note || 'Ausgabe')}${srcHint}</span>
           <span class="col-day">${escapeHtml(item.dateLabel || '')}</span>
           <span class="col-amount">&minus;${formatEUR(item.amount)}</span>
           <span class="col-action">
@@ -770,12 +795,13 @@ function renderApp() {
       : `${state.settings.salaryDay}.`;
 
     const salLi = document.createElement('li');
-    salLi.className = 'sheet-row';
+    salLi.className = 'sheet-row row-editable';
+    salLi.setAttribute('data-edit-type', 'salary');
     salLi.innerHTML = `
       <span class="col-check">
         <input type="checkbox" class="row-checkbox" id="toggleSalaryReceivedChk" ${m.salaryReceived ? 'checked' : ''} aria-label="Gehalt erhalten">
       </span>
-      <label class="col-name" for="toggleSalaryReceivedChk">Monatliches Gehalt</label>
+      <span class="col-name">Monatliches Gehalt</span>
       <span class="col-day">${escapeHtml(salDayText)}</span>
       <span class="col-amount" style="color: var(--positive);">+${formatEUR(m.baseSalary)}</span>
       <span class="col-action">
@@ -786,13 +812,15 @@ function renderApp() {
 
     for (const inc of monthRec.expectedIncomes) {
       const li = document.createElement('li');
-      li.className = 'sheet-row';
+      li.className = 'sheet-row row-editable';
+      li.setAttribute('data-edit-type', 'income');
+      li.setAttribute('data-edit-id', inc.id);
       const incId = `chk-inc-${inc.id}`;
       li.innerHTML = `
         <span class="col-check">
           <input type="checkbox" class="row-checkbox" id="${incId}" data-toggle-income="${escapeHtml(inc.id)}" ${inc.received ? 'checked' : ''}>
         </span>
-        <label class="col-name" for="${incId}">${escapeHtml(inc.title)} <span class="row-sub-inline">${inc.received ? '' : '(offen)'}</span></label>
+        <span class="col-name">${escapeHtml(inc.title)} <span class="row-sub-inline">${inc.received ? '' : '(offen)'}</span></span>
         <span class="col-day">${escapeHtml(inc.dateLabel || '')}</span>
         <span class="col-amount" style="color: var(--positive);">+${formatEUR(inc.amount)}</span>
         <span class="col-action">
@@ -938,6 +966,7 @@ function mergeStates(localState, remoteState) {
       expenses: Array.from(expMap.values()).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0)),
       expectedIncomes: Array.from(incMap.values()),
       paidOverrides: { ...(mOlder.paidOverrides || {}), ...(mNewer.paidOverrides || {}) },
+      amountOverrides: { ...(mOlder.amountOverrides || {}), ...(mNewer.amountOverrides || {}) },
       salaryReceivedOverride:
         mNewer.salaryReceivedOverride !== null && mNewer.salaryReceivedOverride !== undefined
           ? mNewer.salaryReceivedOverride
@@ -1270,6 +1299,18 @@ function bindEvents() {
 
     if (e.target.closest('#editSalaryInlineBtn')) {
       openIncomeDialog();
+      return;
+    }
+
+    const editRow = e.target.closest('[data-edit-type]');
+    if (editRow && !e.target.closest('input, button, a')) {
+      const editType = editRow.getAttribute('data-edit-type');
+      const editId = editRow.getAttribute('data-edit-id');
+      if (editType === 'salary') {
+        openIncomeDialog();
+      } else if (editType && editId) {
+        openEditEntryDialog(editType, editId);
+      }
     }
   });
 
@@ -1473,7 +1514,7 @@ function bindEvents() {
         name,
         amount,
         dateLabel: dayLabel,
-        month: null
+        month: parseAnnualMonth(dayLabel)
       });
     } else {
       state.fixedBills.push({
@@ -1485,7 +1526,209 @@ function bindEvents() {
     }
     saveState(true);
     fixedBillDialog.close();
-    showToast(`✓ ${name} (${formatEUR(amount)}) gespeichert`);
+    showToast(`${name} (${formatEUR(amount)}) gespeichert`);
+  });
+
+  // Modal 3b: Bestehenden Eintrag bearbeiten (Fixkosten inkl. einmaliger Betrag, Jährlich, Ausgabe, Einnahme)
+  function parseAnnualMonth(label) {
+    if (!label) return null;
+    const dm = label.match(/\d{1,2}\.(\d{1,2})\.?/);
+    if (dm) {
+      const m = Number.parseInt(dm[1], 10);
+      if (m >= 1 && m <= 12) return m;
+    }
+    const lower = label.toLowerCase();
+    const months = ['jan', 'feb', 'mär', 'apr', 'mai', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dez'];
+    const idx = months.findIndex((m) => lower.includes(m));
+    return idx >= 0 ? idx + 1 : null;
+  }
+
+  const editEntryDialog = document.getElementById('editEntryDialog');
+  const formatInputEur = (val) => formatEUR(val).replace(/\s*€$/, '');
+
+  function openEditEntryDialog(type, id) {
+    const monthRec = ensureMonthRecord(activeMonthKey);
+    const titleEl = document.getElementById('editEntryDialogTitle');
+    const nameLabelEl = document.getElementById('editNameLabel');
+    const nameIn = document.getElementById('editNameInput');
+    const amountIn = document.getElementById('editAmountInput');
+    const scopeGroup = document.getElementById('editScopeGroup');
+    const scopeOnce = document.getElementById('editScopeOnce');
+    const scopeAlways = document.getElementById('editScopeAlways');
+    const resetOverrideBtn = document.getElementById('resetBillAmountOverrideBtn');
+    const dayGroup = document.getElementById('editDayGroup');
+    const dayLabelEl = document.getElementById('editDayLabel');
+    const dayIn = document.getElementById('editDayInput');
+    const dateGroup = document.getElementById('editDateGroup');
+    const dateIn = document.getElementById('editDateInput');
+
+    document.getElementById('editEntryType').value = type;
+    document.getElementById('editEntryId').value = id;
+
+    scopeGroup.hidden = true;
+    resetOverrideBtn.hidden = true;
+    dayGroup.hidden = true;
+    dateGroup.hidden = true;
+
+    if (type === 'fixed') {
+      const bill = state.fixedBills.find((b) => b.id === id);
+      if (!bill) return;
+      const sched = getBillScheduleInCycle(bill, activeMonthKey);
+      const currentAmount = sched ? sched.amount : bill.amount;
+      const defaultAmount = sched ? sched.defaultAmount : bill.amount;
+
+      titleEl.textContent = 'Fixkosten bearbeiten';
+      nameLabelEl.textContent = 'Bezeichnung';
+      nameIn.value = bill.name || '';
+      amountIn.value = formatInputEur(currentAmount);
+
+      scopeGroup.hidden = false;
+      document.getElementById('editScopeCycleLabel').textContent = formatMonthLabel(activeMonthKey);
+      if (sched && sched.hasAmountOverride) {
+        scopeOnce.checked = true;
+        resetOverrideBtn.hidden = false;
+        resetOverrideBtn.textContent = `Auf Standard (${formatEUR(defaultAmount)}) zurücksetzen`;
+      } else {
+        scopeOnce.checked = false;
+        scopeAlways.checked = true;
+      }
+
+      dayGroup.hidden = false;
+      dayLabelEl.textContent = 'Monatstag (z.B. 01., 15., Kreditkartenabrechnung oder Quartalsdaten)';
+      dayIn.value = bill.dayLabel || '';
+    } else if (type === 'annual') {
+      const ann = state.annualBills.find((a) => a.id === id);
+      if (!ann) return;
+      titleEl.textContent = 'Jährliche Zahlung bearbeiten';
+      nameLabelEl.textContent = 'Bezeichnung';
+      nameIn.value = ann.name || '';
+      amountIn.value = formatInputEur(ann.amount);
+      dayGroup.hidden = false;
+      dayLabelEl.textContent = 'Datum / Monat (z.B. 03.03. oder November)';
+      dayIn.value = ann.dateLabel || '';
+    } else if (type === 'expense') {
+      const exp = monthRec.expenses.find((e) => e.id === id);
+      if (!exp) return;
+      titleEl.textContent = 'Ausgabe bearbeiten';
+      nameLabelEl.textContent = 'Händler / Notiz';
+      nameIn.value = exp.note || '';
+      amountIn.value = formatInputEur(exp.amount);
+    } else if (type === 'income') {
+      const inc = monthRec.expectedIncomes.find((i) => i.id === id);
+      if (!inc) return;
+      titleEl.textContent = 'Einnahme bearbeiten';
+      nameLabelEl.textContent = 'Grund';
+      nameIn.value = inc.title || '';
+      amountIn.value = formatInputEur(inc.amount);
+      dateGroup.hidden = false;
+      dateIn.value = inc.rawDate || '';
+    } else {
+      return;
+    }
+
+    editEntryDialog.showModal();
+  }
+
+  document.getElementById('cancelEditEntryBtn')?.addEventListener('click', () => editEntryDialog.close());
+  document.getElementById('closeEditEntryBtn')?.addEventListener('click', () => editEntryDialog.close());
+
+  document.getElementById('resetBillAmountOverrideBtn')?.addEventListener('click', () => {
+    const id = document.getElementById('editEntryId').value;
+    const monthRec = ensureMonthRecord(activeMonthKey);
+    if (monthRec.amountOverrides && Object.prototype.hasOwnProperty.call(monthRec.amountOverrides, id)) {
+      delete monthRec.amountOverrides[id];
+      saveState(true);
+      editEntryDialog.close();
+      showToast('Betrag auf Standard zurückgesetzt');
+    }
+  });
+
+  document.getElementById('deleteEditEntryBtn')?.addEventListener('click', () => {
+    const type = document.getElementById('editEntryType').value;
+    const id = document.getElementById('editEntryId').value;
+    const monthRec = ensureMonthRecord(activeMonthKey);
+    if (!Array.isArray(state.deletedIds)) state.deletedIds = [];
+
+    if (type === 'fixed') {
+      state.fixedBills = state.fixedBills.filter((x) => x.id !== id);
+    } else if (type === 'annual') {
+      state.annualBills = state.annualBills.filter((x) => x.id !== id);
+    } else if (type === 'expense') {
+      monthRec.expenses = monthRec.expenses.filter((x) => x.id !== id);
+    } else if (type === 'income') {
+      monthRec.expectedIncomes = monthRec.expectedIncomes.filter((x) => x.id !== id);
+    }
+    state.deletedIds.push(id);
+    saveState(true);
+    editEntryDialog.close();
+    showToast('Eintrag gelöscht');
+  });
+
+  document.getElementById('editEntryForm')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const type = document.getElementById('editEntryType').value;
+    const id = document.getElementById('editEntryId').value;
+    const name = document.getElementById('editNameInput').value.trim();
+    const amount = parseFlexibleAmount(document.getElementById('editAmountInput').value);
+    if (!name || !Number.isFinite(amount) || amount < 0) {
+      showToast('Bitte Bezeichnung und gültigen Betrag eingeben.');
+      return;
+    }
+
+    const monthRec = ensureMonthRecord(activeMonthKey);
+
+    if (type === 'fixed') {
+      const bill = state.fixedBills.find((b) => b.id === id);
+      if (!bill) return;
+      bill.name = name;
+      bill.dayLabel = document.getElementById('editDayInput').value.trim();
+      const scope = document.getElementById('editScopeOnce').checked ? 'once' : 'always';
+
+      if (scope === 'once') {
+        const defaultAmt = bill.quarterlyActual || bill.amount;
+        if (Math.abs(amount - defaultAmt) < 0.005) {
+          delete monthRec.amountOverrides[bill.id];
+        } else {
+          monthRec.amountOverrides[bill.id] = amount;
+        }
+        saveState(true);
+        editEntryDialog.close();
+        showToast(`${name} für diesen Zyklus auf ${formatEUR(amount)} angepasst`);
+        return;
+      } else {
+        bill.amount = amount;
+        if (bill.quarterlyActual) bill.quarterlyActual = amount;
+        delete monthRec.amountOverrides[bill.id];
+      }
+    } else if (type === 'annual') {
+      const ann = state.annualBills.find((a) => a.id === id);
+      if (!ann) return;
+      ann.name = name;
+      ann.amount = amount;
+      const dayLabel = document.getElementById('editDayInput').value.trim();
+      ann.dateLabel = dayLabel;
+      ann.month = parseAnnualMonth(dayLabel);
+    } else if (type === 'expense') {
+      const exp = monthRec.expenses.find((x) => x.id === id);
+      if (!exp) return;
+      exp.note = name;
+      exp.amount = amount;
+    } else if (type === 'income') {
+      const inc = monthRec.expectedIncomes.find((x) => x.id === id);
+      if (!inc) return;
+      inc.title = name;
+      inc.amount = amount;
+      const rawDate = document.getElementById('editDateInput').value;
+      inc.rawDate = rawDate || null;
+      const parsedDate = parseGermanOrIsoDate(rawDate);
+      inc.dateLabel = parsedDate
+        ? new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(parsedDate)
+        : 'diesen Zyklus';
+    }
+
+    saveState(true);
+    editEntryDialog.close();
+    showToast('Änderungen gespeichert');
   });
 
   // Modal 4: Apple Pay Shortcut & GitHub Gist Sync
