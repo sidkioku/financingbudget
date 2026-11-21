@@ -195,6 +195,7 @@ function createInitialState() {
     deletedIds: [],
     settings: {
       baseSalary: 2500.00,
+      monthlyBudget: 500.00,
       salaryDay: 20,
       creditCardDay: 28
     },
@@ -520,8 +521,11 @@ function computeMonthMetrics(monthKey) {
   fixedPaidSoFar = Math.round(fixedPaidSoFar * 100) / 100;
   fixedRestbetrag = Math.round(fixedRestbetrag * 100) / 100;
 
-  const variableSpent = monthRec.expenses.reduce((acc, e) => acc + e.amount, 0);
+  const variableSpent = Math.round(monthRec.expenses.reduce((acc, e) => acc + e.amount, 0) * 100) / 100;
   const baseSalary = Number(state.settings.baseSalary) || 0;
+  const monthlyBudget = Number.isFinite(Number(state.settings.monthlyBudget))
+    ? Number(state.settings.monthlyBudget)
+    : 500;
   const salaryReceived = isSalaryReceivedInMonth(monthKey);
 
   const extraIncomesReceived = monthRec.expectedIncomes
@@ -531,12 +535,20 @@ function computeMonthMetrics(monthKey) {
     .filter((inc) => !inc.received)
     .reduce((acc, inc) => acc + inc.amount, 0);
 
-  // Only count baseSalary + actually received extra incomes in the cycle's disposable budget
-  const totalMonthlyIncome = baseSalary + extraIncomesReceived;
-  const freeBudgetTotal = totalMonthlyIncome - fixedBaselineWithReserve;
-  const safeToSpend = freeBudgetTotal - variableSpent;
-  const totalUsedThisMonth = fixedPaidSoFar + variableSpent;
+  // 3-Konten-Modell:
+  // 1) Gehaltskonto: Fixkosten + Jahres-Rücklage (÷12)
+  //    -> muss jetzt noch draufbleiben: fixedRestbetrag + annualMonthlyReserve
+  // 2) Ausgabenkonto: festes Monatsbudget (monthlyBudget)
+  //    -> noch frei: monthlyBudget - variableSpent
+  // 3) Scalable: kompletter Überschuss (Einnahmen - Fixkosten inkl. Rücklage - Monatsbudget)
+  const totalMonthlyIncome = Math.round((baseSalary + extraIncomesReceived) * 100) / 100;
+  const salaryAccountRemaining = Math.round((fixedRestbetrag + annualMonthlyReserve) * 100) / 100;
+  const budgetRemaining = Math.round((monthlyBudget - variableSpent) * 100) / 100;
+  const scalableTransfer = Math.round((totalMonthlyIncome - fixedBaselineWithReserve - monthlyBudget) * 100) / 100;
 
+  const freeBudgetTotal = monthlyBudget;
+  const safeToSpend = budgetRemaining;
+  const totalUsedThisMonth = Math.round((fixedPaidSoFar + variableSpent) * 100) / 100;
   const pendingIncomeTotal = (salaryReceived ? 0 : baseSalary) + extraIncomesPending;
 
   return {
@@ -546,6 +558,10 @@ function computeMonthMetrics(monthKey) {
     fixedBaselineWithReserve,
     fixedPaidSoFar,
     fixedRestbetrag,
+    salaryAccountRemaining,
+    monthlyBudget,
+    budgetRemaining,
+    scalableTransfer,
     paidCount,
     activeBillsCount: activeBillsInCycle.length,
     variableSpent,
@@ -575,167 +591,67 @@ function showToast(message) {
 function renderApp() {
   const monthRec = ensureMonthRecord(activeMonthKey);
   const m = computeMonthMetrics(activeMonthKey);
-
-  // Month label
-  document.getElementById('currentMonthLabel').textContent = formatMonthLabel(activeMonthKey);
-
-  // Update Fixed Bills tab badge count
-  const openBillsCount = m.activeBillsCount - m.paidCount;
-  const tabFixedOpenBadge = document.getElementById('tabFixedOpenBadge');
-  if (tabFixedOpenBadge) {
-    tabFixedOpenBadge.textContent = openBillsCount > 0 ? `${openBillsCount} offen` : '✓ bezahlt';
-  }
-
-  // Hero Safe-to-Spend
-  const safeEl = document.getElementById('safeToSpendValue');
-  safeEl.textContent = formatEUR(m.safeToSpend);
-  safeEl.classList.toggle('positive', m.safeToSpend >= 0);
-  safeEl.classList.toggle('negative', m.safeToSpend < 0);
-
-  const daysLeft = getDaysRemainingInMonth(activeMonthKey);
-  const perDay = m.safeToSpend > 0 ? m.safeToSpend / daysLeft : 0;
-  document.getElementById('dailyAllowanceBadge').innerHTML =
-    `<span>Noch <strong>${formatEUR(perDay)} / Tag</strong> (${daysLeft} Tage übrig)</span>`;
-
-  // Progress bar (Variable spent vs Free disposable budget)
-  const fillEl = document.getElementById('budgetProgressFill');
-  const ratio = m.freeBudgetTotal > 0 ? Math.min(100, Math.max(0, (m.variableSpent / m.freeBudgetTotal) * 100)) : 100;
-  fillEl.style.inlineSize = `${ratio.toFixed(1)}%`;
-  fillEl.classList.toggle('warn', ratio >= 75 && ratio < 100);
-  fillEl.classList.toggle('over', m.safeToSpend < 0);
-
-  const progSumEl = document.getElementById('progressSummaryText');
-  if (progSumEl) {
-    progSumEl.textContent = `${formatEUR(m.variableSpent)} von ${formatEUR(m.freeBudgetTotal)} Budget verbraucht`;
-  }
-
   const setTxt = (id, val) => {
     const el = document.getElementById(id);
     if (el) el.textContent = val;
   };
 
-  setTxt('heroIncomeTotal', formatEUR(m.totalMonthlyIncome));
-  setTxt('heroFixedBaseline', formatEUR(m.fixedBaselineWithReserve));
-  setTxt('heroVariableSpent', formatEUR(m.variableSpent));
+  // Month label
+  setTxt('currentMonthLabel', formatMonthLabel(activeMonthKey));
 
-  // 4-KPI Strip / Details
-  setTxt('kpiTotalUsed', formatEUR(m.totalUsedThisMonth));
-  setTxt('kpiTotalUsedMeta', `${formatEUR(m.fixedPaidSoFar)} Fixkosten abgebucht + ${formatEUR(m.variableSpent)} variabel`);
+  // 3-Konten-Übersicht oben
+  const openBillsCount = m.activeBillsCount - m.paidCount;
+  setTxt('accSalaryRemaining', formatEUR(m.salaryAccountRemaining));
+  setTxt(
+    'accSalaryMeta',
+    `Gesamt ${formatEUR(m.fixedBaselineWithReserve)} · ${m.paidCount}/${m.activeBillsCount} bezahlt`
+  );
 
-  setTxt('kpiRestbetrag', formatEUR(m.fixedRestbetrag));
-  setTxt('kpiRestbetragMeta', `${m.activeBillsCount - m.paidCount} von ${m.activeBillsCount} Fixkosten diesen Monat noch offen`);
+  const budgetValEl = document.getElementById('accBudgetRemaining');
+  if (budgetValEl) {
+    budgetValEl.textContent = formatEUR(m.budgetRemaining);
+    budgetValEl.classList.toggle('positive', m.budgetRemaining >= 0);
+    budgetValEl.classList.toggle('negative', m.budgetRemaining < 0);
+  }
+  setTxt('accBudgetMeta', `von ${formatEUR(m.monthlyBudget)} Monatsbudget`);
 
-  setTxt('kpiExpectedIncome', formatEUR(m.pendingIncomeTotal));
-  const nextIncomeHint = !m.salaryReceived
-    ? `Gehalt (${formatEUR(m.baseSalary)}) am ${state.settings.salaryDay}. erwartet`
-    : (m.extraIncomesPending > 0 ? 'Offene Rückerstattungen erwartet' : 'Alle Einnahmen für diesen Monat erhalten ✓');
-  setTxt('kpiExpectedIncomeMeta', nextIncomeHint);
+  const scalableValEl = document.getElementById('accScalableTransfer');
+  if (scalableValEl) {
+    scalableValEl.textContent = formatEUR(m.scalableTransfer);
+    scalableValEl.classList.toggle('negative', m.scalableTransfer < 0);
+  }
+  setTxt(
+    'accScalableMeta',
+    `${formatEUR(m.totalMonthlyIncome)} − ${formatEUR(m.fixedBaselineWithReserve)} − ${formatEUR(m.monthlyBudget)}`
+  );
 
-  setTxt('kpiAnnualReserve', formatEUR(m.annualMonthlyReserve));
-  setTxt('kpiAnnualReserveMeta', `${formatEUR(m.annualTotal)}/Jahr ÷ 12 monatliche Rücklage`);
+  // Tab counts
+  setTxt('tabFixedOpenBadge', openBillsCount > 0 ? `${openBillsCount} offen` : 'alle bezahlt');
+  setTxt('variableCountBadge', monthRec.expenses.length > 0 ? `${monthRec.expenses.length}` : '');
 
-  // Special Debit Notice Banner (Annual bills falling in active 20.->20. cycle)
+  // Hinweiszeile für fällige Jahreszahlungen im aktiven Zyklus
   const { start: cycStart, end: cycEnd } = getCycleBounds(activeMonthKey);
   const startMonthNum = cycStart.getMonth() + 1;
   const endMonthNum = cycEnd.getMonth() + 1;
   const dueNotices = [];
   for (const ann of state.annualBills) {
     if (ann.month === startMonthNum || ann.month === endMonthNum) {
-      dueNotices.push(`${ann.name} (${formatEUR(ann.amount)} — ${ann.dateLabel})`);
+      dueNotices.push(`${ann.name} (${formatEUR(ann.amount)} · ${ann.dateLabel})`);
     }
   }
   const bannerEl = document.getElementById('specialDebitBanner');
-  if (dueNotices.length > 0) {
-    bannerEl.hidden = false;
-    document.getElementById('specialDebitText').innerHTML =
-      `<strong>📌 Hinweis für Zyklus ${formatMonthLabel(activeMonthKey)}:</strong> Tatsächliche Abbuchung aus deiner Jahres-Rücklage: ${dueNotices.join(' • ')}`;
-  } else {
-    bannerEl.hidden = true;
-  }
-
-  // Variable Expense List
-  const expListEl = document.getElementById('variableExpenseList');
-  document.getElementById('variableCountBadge').textContent = `${monthRec.expenses.length} Einträge`;
-  expListEl.innerHTML = '';
-
-  if (monthRec.expenses.length === 0) {
-    const emptyLi = document.createElement('li');
-    emptyLi.className = 'brand-subtitle';
-    emptyLi.style.padding = '0.75rem 0.25rem';
-    emptyLi.textContent = 'Noch keine variablen Ausgaben in diesem Monat. Nutze Apple Pay, die Schnelleingabe oben oder am Urlaubsende den 5-Sekunden Konto-Abgleich.';
-    expListEl.appendChild(emptyLi);
-  } else {
-    const sorted = [...monthRec.expenses].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-    for (const item of sorted) {
-      const li = document.createElement('li');
-      li.className = 'item-row';
-      const badgeHtml = item.source === 'Apple Pay'
-        ? `<span class="badge badge-applepay">Apple Pay</span>`
-        : (item.source === 'Abgleich' ? `<span class="badge">Urlaub / Abgleich</span>` : '');
-      li.innerHTML = `
-        <div>
-          <div class="item-title">${escapeHtml(item.note || 'Ausgabe')} ${badgeHtml}</div>
-          <div class="item-sub">${escapeHtml(item.dateLabel || '')}</div>
-        </div>
-        <div style="display: flex; align-items: center; gap: 0.45rem;">
-          <span class="item-amount">&minus;${formatEUR(item.amount)}</span>
-          <button type="button" class="btn btn-ghost btn-danger" data-del-expense="${escapeHtml(item.id)}" aria-label="Eintrag löschen">&times;</button>
-        </div>
-      `;
-      expListEl.appendChild(li);
+  if (bannerEl) {
+    if (dueNotices.length > 0) {
+      bannerEl.hidden = false;
+      setTxt('specialDebitText', `Fällige Jahreszahlung aus Rücklage in diesem Zyklus: ${dueNotices.join(', ')}`);
+    } else {
+      bannerEl.hidden = true;
     }
   }
 
-  // Income & Expected Payments List
-  const incListEl = document.getElementById('incomeList');
-  incListEl.innerHTML = '';
-
-  // Row 1: Fixed Monthly Base Salary
-  const [cycY, cycM] = activeMonthKey.split('-').map(Number);
-  const salSched = getEffectiveSalaryDate(cycY, cycM);
   const wdFmt = new Intl.DateTimeFormat('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' });
-  const salShiftHint = salSched.shifted
-    ? ` (Werktag vorab: ${wdFmt.format(salSched.effective)})`
-    : '';
-  const salLi = document.createElement('li');
-  salLi.className = 'item-row';
-  const salChecked = m.salaryReceived ? 'checked' : '';
-  salLi.innerHTML = `
-    <label class="checkbox-label" style="min-block-size: 38px;">
-      <input type="checkbox" class="checkbox-custom" id="toggleSalaryReceivedChk" ${salChecked}>
-      <span>
-        <span class="item-title" style="display:block;">Monatliches Gehalt / Haupt-Einkommen</span>
-        <span class="item-sub">Zahltag: ${state.settings.salaryDay}.${salShiftHint} &bull; ${m.salaryReceived ? 'Bereits eingegangen ✓' : 'Wird erwartet'}</span>
-      </span>
-    </label>
-    <div style="display: flex; align-items: center; gap: 0.4rem;">
-      <span class="item-amount" style="color: var(--color-success);">+${formatEUR(m.baseSalary)}</span>
-      <button type="button" class="btn btn-ghost" id="editSalaryInlineBtn" aria-label="Gehalt ändern">✎</button>
-    </div>
-  `;
-  incListEl.appendChild(salLi);
 
-  // Additional expected incomes for this month
-  for (const inc of monthRec.expectedIncomes) {
-    const li = document.createElement('li');
-    li.className = 'item-row';
-    li.innerHTML = `
-      <label class="checkbox-label" style="min-block-size: 38px;">
-        <input type="checkbox" class="checkbox-custom" data-toggle-income="${escapeHtml(inc.id)}" ${inc.received ? 'checked' : ''}>
-        <span>
-          <span class="item-title" style="display:block;">${escapeHtml(inc.title)}</span>
-          <span class="item-sub">Erwartet: ${escapeHtml(inc.dateLabel || 'diesen Monat')} &bull; ${inc.received ? 'Erhalten ✓' : 'Noch offen'}</span>
-        </span>
-      </label>
-      <div style="display: flex; align-items: center; gap: 0.4rem;">
-        <span class="item-amount" style="color: var(--color-success);">+${formatEUR(inc.amount)}</span>
-        <button type="button" class="btn btn-ghost btn-danger" data-del-income="${escapeHtml(inc.id)}" aria-label="Einnahme löschen">&times;</button>
-      </div>
-    `;
-    incListEl.appendChild(li);
-  }
-
-  // Fixed Bills (Clean, mobile-first List) — sorted chronologically within the 20. -> 20. cycle
+  // TAB 1: Fixkosten-Tabelle (flach, ruhig, chronologisch nach 20. -> 20. Zyklus)
   const fixedListEl = document.getElementById('fixedBillsList');
   const activeFixed = [];
   for (const bill of state.fixedBills) {
@@ -750,77 +666,142 @@ function renderApp() {
     fixedListEl.innerHTML = '';
     if (activeFixed.length === 0) {
       const emptyLi = document.createElement('li');
-      emptyLi.className = 'brand-subtitle';
-      emptyLi.style.padding = '0.75rem 0.25rem';
-      emptyLi.textContent = 'Keine Fixkosten in diesem Zyklus fällig.';
+      emptyLi.className = 'empty-row';
+      emptyLi.textContent = 'Keine Fixkosten in diesem Zyklus.';
       fixedListEl.appendChild(emptyLi);
     } else {
       for (const { bill, sched } of activeFixed) {
         const paid = isBillPaidInMonth(bill, activeMonthKey);
         const hasManualOverride = Object.prototype.hasOwnProperty.call(monthRec.paidOverrides, bill.id);
-        const shiftBadge = sched.shifted
-          ? `<span class="badge" style="margin-inline-start:0.35rem;" title="Wegen Wochenende/Feiertag nächster Bankarbeitstag">⏳ ${wdFmt.format(sched.effectiveDate)}</span>`
-          : '';
-        const quarterlyBadge = sched.isQuarterly
-          ? `<span class="badge" style="margin-inline-start:0.35rem;" title="Wird nur quartalsweise in diesem Zyklus abgebucht">Quartalsweise</span>`
-          : '';
+        const dayText = sched.shifted
+          ? `${sched.dayLabel || '—'} → ${wdFmt.format(sched.effectiveDate)}`
+          : (sched.dayLabel || '—');
+        const nameExtra = sched.isQuarterly ? ' <span class="row-sub-inline">(Quartal)</span>' : '';
+        const overrideMark = hasManualOverride ? ' *' : '';
+
         const li = document.createElement('li');
-        li.className = 'item-row';
-        if (paid) li.classList.add('row-paid');
+        li.className = `sheet-row${paid ? ' row-paid' : ''}`;
         const chkId = `chk-bill-${bill.id}`;
         li.innerHTML = `
-          <label class="checkbox-label" for="${chkId}" style="min-block-size: 38px;">
-            <input type="checkbox" class="checkbox-custom" id="${chkId}" data-toggle-bill="${escapeHtml(bill.id)}" ${paid ? 'checked' : ''}>
-            <div>
-              <span class="item-title ${paid ? 'text-muted' : ''}" style="display:block;">
-                ${escapeHtml(bill.name)}${quarterlyBadge}
-              </span>
-              <span class="item-sub">
-                Fällig: ${escapeHtml(sched.dayLabel || '—')}${shiftBadge}
-                ${paid ? ' &bull; Bezahlt ✓' : ''}${hasManualOverride ? ' *' : ''}
-              </span>
-            </div>
-          </label>
-          <div style="display: flex; align-items: center; gap: 0.5rem;">
-            <span class="item-amount ${paid ? 'amount-paid' : ''}">${formatEUR(sched.amount)}</span>
-            <button type="button" class="btn btn-ghost btn-danger" data-del-fixed="${escapeHtml(bill.id)}" aria-label="${escapeHtml(bill.name)} löschen">&times;</button>
-          </div>
+          <span class="col-check">
+            <input type="checkbox" class="row-checkbox" id="${chkId}" data-toggle-bill="${escapeHtml(bill.id)}" ${paid ? 'checked' : ''} aria-label="${escapeHtml(bill.name)} bezahlt">
+          </span>
+          <label class="col-name" for="${chkId}" title="${escapeHtml(bill.name)}">${escapeHtml(bill.name)}${nameExtra}${overrideMark}</label>
+          <span class="col-day">${escapeHtml(dayText)}</span>
+          <span class="col-amount">${formatEUR(sched.amount)}</span>
+          <span class="col-action">
+            <button type="button" class="row-delete-btn" data-del-fixed="${escapeHtml(bill.id)}" aria-label="${escapeHtml(bill.name)} löschen">&times;</button>
+          </span>
         `;
         fixedListEl.appendChild(li);
       }
     }
   }
 
-  setTxt('fixedPaidCountCell', `${m.paidCount}/${m.activeBillsCount} bezahlt`);
-  setTxt('fixedTotalAmountCell', formatEUR(m.fixedTotal));
-  setTxt('fixedTotalRestCell', formatEUR(m.fixedRestbetrag));
+  // Jahres-Rücklage & Einzelposten
+  setTxt('annualCountHint', `(${state.annualBills.length} Posten)`);
+  setTxt('annualTotalCell', formatEUR(m.annualTotal));
+  setTxt('annualMonthlyReserveCell', formatEUR(m.annualMonthlyReserve));
 
-  // Annual Bills (Clean, mobile-first List) — sorted chronologically by month
   const annualListEl = document.getElementById('annualBillsList');
   const sortedAnnualBills = [...state.annualBills].sort((a, b) => (a.month || 99) - (b.month || 99));
-
   if (annualListEl) {
     annualListEl.innerHTML = '';
     for (const ann of sortedAnnualBills) {
       const monthlyPart = ann.amount / 12;
       const li = document.createElement('li');
-      li.className = 'item-row';
+      li.className = 'sheet-row expense-row';
       li.innerHTML = `
-        <div>
-          <span class="item-title" style="display:block;">${escapeHtml(ann.name)}</span>
-          <span class="item-sub">Fällig: ${escapeHtml(ann.dateLabel || '—')} &bull; Rücklage: ${formatEUR(monthlyPart)} / Monat</span>
-        </div>
-        <div style="display: flex; align-items: center; gap: 0.5rem;">
-          <span class="item-amount">${formatEUR(ann.amount)}</span>
-          <button type="button" class="btn btn-ghost btn-danger" data-del-annual="${escapeHtml(ann.id)}" aria-label="${escapeHtml(ann.name)} löschen">&times;</button>
-        </div>
+        <span class="col-name">${escapeHtml(ann.name)} <span class="row-sub-inline">(${formatEUR(monthlyPart)}/Mo)</span></span>
+        <span class="col-day">${escapeHtml(ann.dateLabel || '—')}</span>
+        <span class="col-amount">${formatEUR(ann.amount)}</span>
+        <span class="col-action">
+          <button type="button" class="row-delete-btn" data-del-annual="${escapeHtml(ann.id)}" aria-label="${escapeHtml(ann.name)} löschen">&times;</button>
+        </span>
       `;
       annualListEl.appendChild(li);
     }
   }
 
-  setTxt('annualTotalCell', formatEUR(m.annualTotal));
-  setTxt('annualMonthlyReserveCell', `${formatEUR(m.annualMonthlyReserve)} / Mo`);
+  // Summenzeile unten
+  setTxt('fixedTotalWithReserveCell', formatEUR(m.fixedBaselineWithReserve));
+  setTxt('fixedPaidAmountCell', formatEUR(m.fixedPaidSoFar));
+  setTxt('fixedStayOnAccountCell', formatEUR(m.salaryAccountRemaining));
+
+  // TAB 2: Ausgabenkonto (Variable Ausgaben)
+  setTxt('budgetSpentSummary', `${formatEUR(m.variableSpent)} von ${formatEUR(m.monthlyBudget)} ausgegeben`);
+  const expListEl = document.getElementById('variableExpenseList');
+  if (expListEl) {
+    expListEl.innerHTML = '';
+    if (monthRec.expenses.length === 0) {
+      const emptyLi = document.createElement('li');
+      emptyLi.className = 'empty-row';
+      emptyLi.textContent = 'Noch keine Ausgaben in diesem Zyklus. Zahlungen per Apple Pay oder Eingabe oben erscheinen hier.';
+      expListEl.appendChild(emptyLi);
+    } else {
+      const sorted = [...monthRec.expenses].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      for (const item of sorted) {
+        const li = document.createElement('li');
+        li.className = 'sheet-row expense-row';
+        const srcHint = item.source && item.source !== 'Manuell'
+          ? ` <span class="row-sub-inline">(${escapeHtml(item.source)})</span>`
+          : '';
+        li.innerHTML = `
+          <span class="col-name">${escapeHtml(item.note || 'Ausgabe')}${srcHint}</span>
+          <span class="col-day">${escapeHtml(item.dateLabel || '')}</span>
+          <span class="col-amount">&minus;${formatEUR(item.amount)}</span>
+          <span class="col-action">
+            <button type="button" class="row-delete-btn" data-del-expense="${escapeHtml(item.id)}" aria-label="Eintrag löschen">&times;</button>
+          </span>
+        `;
+        expListEl.appendChild(li);
+      }
+    }
+  }
+
+  // Einnahmen im Zyklus (Gehalt + eventuelle Einmaleinnahmen)
+  const incListEl = document.getElementById('incomeList');
+  if (incListEl) {
+    incListEl.innerHTML = '';
+    const [cycY, cycM] = activeMonthKey.split('-').map(Number);
+    const salSched = getEffectiveSalaryDate(cycY, cycM);
+    const salDayText = salSched.shifted
+      ? `${state.settings.salaryDay}. → ${wdFmt.format(salSched.effective)}`
+      : `${state.settings.salaryDay}.`;
+
+    const salLi = document.createElement('li');
+    salLi.className = 'sheet-row';
+    salLi.innerHTML = `
+      <span class="col-check">
+        <input type="checkbox" class="row-checkbox" id="toggleSalaryReceivedChk" ${m.salaryReceived ? 'checked' : ''} aria-label="Gehalt erhalten">
+      </span>
+      <label class="col-name" for="toggleSalaryReceivedChk">Monatliches Gehalt</label>
+      <span class="col-day">${escapeHtml(salDayText)}</span>
+      <span class="col-amount" style="color: var(--positive);">+${formatEUR(m.baseSalary)}</span>
+      <span class="col-action">
+        <button type="button" class="row-delete-btn" id="editSalaryInlineBtn" aria-label="Gehalt ändern">&#9998;</button>
+      </span>
+    `;
+    incListEl.appendChild(salLi);
+
+    for (const inc of monthRec.expectedIncomes) {
+      const li = document.createElement('li');
+      li.className = 'sheet-row';
+      const incId = `chk-inc-${inc.id}`;
+      li.innerHTML = `
+        <span class="col-check">
+          <input type="checkbox" class="row-checkbox" id="${incId}" data-toggle-income="${escapeHtml(inc.id)}" ${inc.received ? 'checked' : ''}>
+        </span>
+        <label class="col-name" for="${incId}">${escapeHtml(inc.title)} <span class="row-sub-inline">${inc.received ? '' : '(offen)'}</span></label>
+        <span class="col-day">${escapeHtml(inc.dateLabel || '')}</span>
+        <span class="col-amount" style="color: var(--positive);">+${formatEUR(inc.amount)}</span>
+        <span class="col-action">
+          <button type="button" class="row-delete-btn" data-del-income="${escapeHtml(inc.id)}" aria-label="Einnahme löschen">&times;</button>
+        </span>
+      `;
+      incListEl.appendChild(li);
+    }
+  }
 
   // Update Shortcut URL preview
   const baseUrl = window.location.origin + window.location.pathname;
@@ -1001,12 +982,12 @@ function updateSyncIndicator(status, text) {
 
 async function pullFromGist({ silent = false } = {}) {
   if (!syncConfig.gistId || !syncConfig.gistToken) {
-    updateSyncIndicator('', 'Lokal gespeichert');
+    updateSyncIndicator('', 'Lokal');
     return;
   }
   if (isSyncing) return;
   isSyncing = true;
-  if (!silent) updateSyncIndicator('syncing', 'Synchronisiere…');
+  if (!silent) updateSyncIndicator('syncing', 'Sync…');
 
   try {
     // Bypass browser HTTP cache with cache: 'no-store' and timestamp query param
@@ -1040,9 +1021,9 @@ async function pullFromGist({ silent = false } = {}) {
         return;
       }
     }
-    updateSyncIndicator('synced', 'iPhone & Mac live synchron');
+    updateSyncIndicator('synced', 'Synchron');
   } catch {
-    updateSyncIndicator('error', 'Sync-Fehler / Offline');
+    updateSyncIndicator('error', 'Offline');
   } finally {
     isSyncing = false;
     if (pendingPush) {
@@ -1059,7 +1040,7 @@ async function pushToGist() {
     return;
   }
   isSyncing = true;
-  updateSyncIndicator('syncing', 'Speichere live…');
+  updateSyncIndicator('syncing', 'Speichere…');
 
   try {
     // First pull latest to merge safely before patching
@@ -1104,9 +1085,9 @@ async function pushToGist() {
       })
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    updateSyncIndicator('synced', 'iPhone & Mac live synchron');
+    updateSyncIndicator('synced', 'Synchron');
   } catch {
-    updateSyncIndicator('error', 'Sync-Fehler / Offline');
+    updateSyncIndicator('error', 'Offline');
   } finally {
     isSyncing = false;
     if (pendingPush) {
@@ -1197,7 +1178,7 @@ function switchToView(viewId) {
   }
 
   // Update tab buttons
-  document.querySelectorAll('.view-tab').forEach((btn) => {
+  document.querySelectorAll('.sheet-tab').forEach((btn) => {
     const isActive = btn.getAttribute('data-target-view') === viewId;
     btn.classList.toggle('active', isActive);
     if (isActive) {
@@ -1357,14 +1338,12 @@ function bindEvents() {
     openIncomeDialog();
   });
 
-  // Modal 1: Reconcile / Vacation Lump Sum
+  // Modal 1: Reconcile / Vacation Lump Sum (abgeglichen mit dem Ausgabenkonto)
   const reconcileDialog = document.getElementById('reconcileDialog');
   const openReconcileModal = () => {
     const m = computeMonthMetrics(activeMonthKey);
-    const receivedCashSoFar = (m.salaryReceived ? m.baseSalary : 0) + m.extraIncomesTotal;
-    const expectedAccountCash = receivedCashSoFar - m.fixedPaidSoFar - m.variableSpent;
     document.getElementById('reconcilePreviewText').textContent =
-      `Rechnerischer Soll-Stand (aus eingegangenen Einnahmen abzgl. bisher bezahlter Fixkosten & Ausgaben): ${formatEUR(expectedAccountCash)}`;
+      `Rechnerischer Rest auf deinem Ausgabenkonto (${formatEUR(m.monthlyBudget)} Budget − ${formatEUR(m.variableSpent)} gebucht): ${formatEUR(m.budgetRemaining)}`;
     document.getElementById('actualBankBalanceInput').value = '';
     document.getElementById('lumpSumAmountInput').value = '';
     reconcileDialog.showModal();
@@ -1374,21 +1353,19 @@ function bindEvents() {
   document.getElementById('applyBalanceReconcileBtn').addEventListener('click', () => {
     const actual = parseFlexibleAmount(document.getElementById('actualBankBalanceInput').value);
     if (!Number.isFinite(actual)) {
-      showToast('Bitte deinen aktuellen Bank-Kontostand eingeben.');
+      showToast('Bitte den aktuellen Stand auf deinem Ausgabenkonto eingeben.');
       return;
     }
     const m = computeMonthMetrics(activeMonthKey);
-    const receivedCashSoFar = (m.salaryReceived ? m.baseSalary : 0) + m.extraIncomesTotal;
-    const expectedAccountCash = receivedCashSoFar - m.fixedPaidSoFar - m.variableSpent;
-    const diff = Math.round((expectedAccountCash - actual) * 100) / 100;
+    const diff = Math.round((m.budgetRemaining - actual) * 100) / 100;
     if (diff <= 0) {
-      showToast('Dein Kontostand ist höher oder gleich dem Soll-Stand — keine Nachbuchung nötig!');
+      showToast('Dein Ausgabenkonto ist höher oder gleich dem Soll-Stand — keine Nachbuchung nötig.');
       reconcileDialog.close();
       return;
     }
-    addVariableExpense(diff, 'Konto-Abgleich / Urlaubs-Differenz', 'Abgleich');
+    addVariableExpense(diff, 'Konto-Abgleich', 'Abgleich');
     reconcileDialog.close();
-    showToast(`✓ Differenz von ${formatEUR(diff)} automatisch ausgeglichen!`);
+    showToast(`Differenz von ${formatEUR(diff)} gebucht`);
   });
 
   document.getElementById('applyLumpSumBtn').addEventListener('click', () => {
@@ -1396,29 +1373,36 @@ function bindEvents() {
     const note = document.getElementById('lumpSumNoteInput').value || 'Urlaub / Sammelbuchung';
     if (addVariableExpense(amt, note, 'Abgleich')) {
       reconcileDialog.close();
-      showToast(`✓ Pauschalbetrag gebucht: ${formatEUR(parseFlexibleAmount(amt))}`);
+      showToast(`Pauschalbetrag gebucht: ${formatEUR(parseFlexibleAmount(amt))}`);
     }
   });
 
-  // Modal 2: Income & Expected Payments
+  // Modal 2: Gehalt, Monatsbudget & Einmaleinnahmen
   const incomeDialog = document.getElementById('incomeDialog');
   function openIncomeDialog() {
     document.getElementById('baseSalaryAmountInput').value = formatEUR(state.settings.baseSalary).replace(/\s*€$/, '');
-    document.getElementById('baseSalaryDayInput').value = state.settings.salaryDay || 28;
+    const budgetVal = Number.isFinite(Number(state.settings.monthlyBudget)) ? Number(state.settings.monthlyBudget) : 500;
+    const budgetIn = document.getElementById('monthlyBudgetInput');
+    if (budgetIn) budgetIn.value = formatEUR(budgetVal).replace(/\s*€$/, '');
+    document.getElementById('baseSalaryDayInput').value = state.settings.salaryDay || 20;
     document.getElementById('creditCardDayInput').value = state.settings.creditCardDay || 28;
     incomeDialog.showModal();
   }
-  document.getElementById('openIncomeDialogBtn').addEventListener('click', openIncomeDialog);
+  document.getElementById('openIncomeDialogBtn')?.addEventListener('click', openIncomeDialog);
+  document.getElementById('openScalableSettingsBtn')?.addEventListener('click', openIncomeDialog);
 
   document.getElementById('saveBaseSalaryBtn').addEventListener('click', () => {
     const sal = parseFlexibleAmount(document.getElementById('baseSalaryAmountInput').value);
+    const budEl = document.getElementById('monthlyBudgetInput');
+    const bud = budEl ? parseFlexibleAmount(budEl.value) : NaN;
     const sDay = Number.parseInt(document.getElementById('baseSalaryDayInput').value, 10);
     const ccDay = Number.parseInt(document.getElementById('creditCardDayInput').value, 10);
     if (Number.isFinite(sal) && sal >= 0) state.settings.baseSalary = sal;
+    if (Number.isFinite(bud) && bud >= 0) state.settings.monthlyBudget = bud;
     if (sDay >= 1 && sDay <= 31) state.settings.salaryDay = sDay;
     if (ccDay >= 1 && ccDay <= 31) state.settings.creditCardDay = ccDay;
     saveState(true);
-    showToast('✓ Gehalt & Einstellungen gespeichert');
+    showToast('Gehalt & Monatsbudget gespeichert');
   });
 
   document.getElementById('addExpectedIncomeBtn').addEventListener('click', () => {
@@ -1625,16 +1609,16 @@ function buildDailyNotificationPayload() {
     }
   }
 
-  const title = `💶 Noch ${formatEUR(perDay)} / Tag (${formatEUR(m.safeToSpend)} frei)`;
+  const title = `Ausgabenkonto: ${formatEUR(m.budgetRemaining)} von ${formatEUR(m.monthlyBudget)} frei`;
   const parts = [];
   if (dueToday.length > 0) {
-    parts.push(`📅 Heute abgebucht: ${dueToday.join(', ')}`);
+    parts.push(`Heute abgebucht: ${dueToday.join(', ')}`);
   } else if (dueTomorrow.length > 0) {
-    parts.push(`⏳ Morgen fällig: ${dueTomorrow.join(', ')}`);
+    parts.push(`Morgen fällig: ${dueTomorrow.join(', ')}`);
   } else {
-    parts.push('✓ Heute keine Fixkosten-Abbuchung');
+    parts.push('Heute keine Fixkosten-Abbuchung');
   }
-  parts.push(`Offene Fixkosten im Zyklus: ${formatEUR(m.fixedRestbetrag)}`);
+  parts.push(`Gehaltskonto noch offen: ${formatEUR(m.salaryAccountRemaining)}`);
 
   return {
     title,
