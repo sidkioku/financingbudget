@@ -88,6 +88,7 @@ body {
   padding-top: env(safe-area-inset-top, 0px);
   padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 3rem);
   -webkit-font-smoothing: antialiased;
+  touch-action: manipulation;
 }
 
 .app-shell {
@@ -616,16 +617,22 @@ body {
   color: var(--text-muted);
 }
 
-/* Inputs & Buttons */
+/* Inputs & Buttons (16px verhindert automatisches Reinzoomen in iOS Safari) */
+input,
+select,
+textarea,
+.input {
+  font-size: 16px;
+}
+
 .input {
   inline-size: 100%;
-  padding: 0.55rem 0.75rem;
-  font-size: 0.92rem;
+  padding: 0.5rem 0.75rem;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--bg-surface);
   color: var(--text-primary);
-  min-block-size: 38px;
+  min-block-size: 40px;
 }
 
 .input:focus {
