@@ -639,9 +639,15 @@ function renderApp() {
     `${formatEUR(m.totalMonthlyIncome)} − ${formatEUR(m.fixedBaselineWithReserve)} − ${formatEUR(m.monthlyBudget)}`
   );
 
-  // Tab counts
-  setTxt('tabFixedOpenBadge', openBillsCount > 0 ? `${openBillsCount} offen` : 'alle bezahlt');
-  setTxt('variableCountBadge', monthRec.expenses.length > 0 ? `${monthRec.expenses.length}` : '');
+  // Sidebar & Mobile Bottom Nav counts
+  document.querySelectorAll('[data-fixed-open-count]').forEach((el) => {
+    el.textContent = openBillsCount > 0 ? String(openBillsCount) : '';
+    el.hidden = openBillsCount <= 0;
+  });
+  document.querySelectorAll('[data-variable-count]').forEach((el) => {
+    el.textContent = monthRec.expenses.length > 0 ? String(monthRec.expenses.length) : '';
+    el.hidden = monthRec.expenses.length <= 0;
+  });
 
   // Hinweiszeile für fällige Jahreszahlungen im aktiven Zyklus
   const { start: cycStart, end: cycEnd } = getCycleBounds(activeMonthKey);
@@ -1001,12 +1007,13 @@ let isSyncing = false;
 let pendingPush = false;
 
 function updateSyncIndicator(status, text) {
-  const dot = document.getElementById('syncDot');
-  const label = document.getElementById('syncStatusText');
-  if (!dot || !label) return;
-  dot.className = 'sync-dot';
-  if (status) dot.classList.add(status);
-  label.textContent = text;
+  document.querySelectorAll('.sync-dot').forEach((dot) => {
+    dot.className = 'sync-dot';
+    if (status) dot.classList.add(status);
+  });
+  document.querySelectorAll('.sync-label').forEach((label) => {
+    label.textContent = text;
+  });
 }
 
 async function pullFromGist({ silent = false } = {}) {
@@ -1206,8 +1213,12 @@ function switchToView(viewId) {
     activeView.focus();
   }
 
-  // Update tab buttons
-  document.querySelectorAll('.sheet-tab').forEach((btn) => {
+  // Update page title & all nav items (desktop sidebar + mobile bottom bar)
+  const pageTitleEl = document.getElementById('activePageTitle');
+  if (pageTitleEl) {
+    pageTitleEl.textContent = viewId === 'view-budget' ? 'Ausgabenkonto' : 'Gehaltskonto';
+  }
+  document.querySelectorAll('[data-target-view]').forEach((btn) => {
     const isActive = btn.getAttribute('data-target-view') === viewId;
     btn.classList.toggle('active', isActive);
     if (isActive) {
@@ -1243,6 +1254,16 @@ function bindEvents() {
 
   // Delegated clicks for lists and tables
   document.body.addEventListener('click', (e) => {
+    if (e.target.closest('[data-open-tools]')) {
+      document.getElementById('toolsDialog')?.showModal();
+      return;
+    }
+
+    if (e.target.closest('[data-open-sync]')) {
+      openSyncModal();
+      return;
+    }
+
     const tabBtn = e.target.closest('[data-target-view]');
     if (tabBtn) {
       switchToView(tabBtn.getAttribute('data-target-view'));

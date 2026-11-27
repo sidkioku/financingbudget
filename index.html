@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <!-- MANDATORY: Declare support for both light and dark themes -->
   <meta name="color-scheme" content="light dark">
-  <meta name="theme-color" content="#0f766e">
+  <meta name="theme-color" content="#2563eb">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="Finanzplan">
@@ -17,60 +17,94 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div class="app-shell">
-    <!-- Minimal Topbar -->
-    <header class="topbar">
-      <div class="brand-group">
-        <h1 class="brand-title">Finanzplan</h1>
+  <div class="copilot-layout">
+    <!-- Desktop Left Sidebar (Finanzfluss Copilot Style) -->
+    <aside class="sidebar" aria-label="Hauptnavigation">
+      <div class="sidebar-brand">
+        <span class="brand-mark" aria-hidden="true">F</span>
+        <div>
+          <div class="brand-name">Finanzplan</div>
+          <div class="brand-tag">3-Konten-Planer</div>
+        </div>
       </div>
 
-      <div class="month-nav" role="group" aria-label="Zyklusauswahl (20. bis 20.)">
-        <button type="button" id="prevMonthBtn" aria-label="Vorheriger Zyklus">&lsaquo;</button>
-        <span id="currentMonthLabel" class="month-label">20. Okt – 20. Nov</span>
-        <button type="button" id="nextMonthBtn" aria-label="Nächster Zyklus">&rsaquo;</button>
-      </div>
-
-      <div class="topbar-actions">
-        <button type="button" id="openSyncBtn" class="sync-indicator" title="Cloud-Sync &amp; Apple Pay">
-          <span id="syncDot" class="sync-dot"></span>
-          <span id="syncStatusText" class="sync-label">Lokal</span>
+      <nav class="sidebar-nav" aria-label="Bereiche">
+        <button type="button" class="nav-item active" data-target-view="view-fixed" aria-current="page">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="4" width="18" height="16" rx="2"/>
+            <line x1="3" y1="10" x2="21" y2="10"/>
+            <line x1="7" y1="15" x2="11" y2="15"/>
+          </svg>
+          <span class="nav-label">Gehaltskonto</span>
+          <span class="nav-pill" data-fixed-open-count></span>
         </button>
-        <button type="button" id="openToolsBtn" class="text-btn">Einstellungen</button>
+
+        <button type="button" class="nav-item" data-target-view="view-budget">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 12V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5z"/>
+            <path d="M16 12h5"/>
+          </svg>
+          <span class="nav-label">Ausgabenkonto</span>
+          <span class="nav-pill" data-variable-count></span>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <button type="button" class="nav-item" data-open-sync title="Cloud-Sync &amp; Apple Pay">
+          <span class="sync-dot"></span>
+          <span class="nav-label sync-label">Lokal</span>
+        </button>
+
+        <button type="button" class="nav-item" data-open-tools>
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+          <span class="nav-label">Einstellungen</span>
+        </button>
       </div>
-    </header>
+    </aside>
 
-    <!-- 3-Konten-Übersicht (flach & transparent wie Kopfzeilen in Excel) -->
-    <section class="accounts-strip" aria-label="3-Konten-Übersicht">
-      <button type="button" class="account-cell" data-jump-view="view-fixed">
-        <span class="account-label">Gehaltskonto &middot; noch offen</span>
-        <span id="accSalaryRemaining" class="account-value">0,00 &euro;</span>
-        <span id="accSalaryMeta" class="account-meta">Gesamt 0,00 &euro; &middot; 0/0 bezahlt</span>
-      </button>
+    <!-- Main Workspace -->
+    <main class="main-workspace">
+      <div class="app-shell">
+        <!-- Top Header Bar -->
+        <header class="topbar">
+          <div class="topbar-title-group">
+            <h1 id="activePageTitle" class="page-title">Gehaltskonto</h1>
+            <button type="button" class="mobile-sync-btn" data-open-sync title="Cloud-Sync &amp; Apple Pay">
+              <span class="sync-dot"></span>
+              <span class="sync-label">Lokal</span>
+            </button>
+          </div>
 
-      <button type="button" class="account-cell" data-jump-view="view-budget">
-        <span class="account-label">Ausgabenkonto &middot; noch frei</span>
-        <span id="accBudgetRemaining" class="account-value positive">0,00 &euro;</span>
-        <span id="accBudgetMeta" class="account-meta">von 500,00 &euro; Monatsbudget</span>
-      </button>
+          <div class="month-nav" role="group" aria-label="Zyklusauswahl (20. bis 20.)">
+            <button type="button" id="prevMonthBtn" aria-label="Vorheriger Zyklus">&lsaquo;</button>
+            <span id="currentMonthLabel" class="month-label">20. Okt – 20. Nov</span>
+            <button type="button" id="nextMonthBtn" aria-label="Nächster Zyklus">&rsaquo;</button>
+          </div>
+        </header>
 
-      <button type="button" class="account-cell" id="openScalableSettingsBtn">
-        <span class="account-label">Scalable &middot; Überweisung</span>
-        <span id="accScalableTransfer" class="account-value">0,00 &euro;</span>
-        <span id="accScalableMeta" class="account-meta">Gehalt &minus; Fixkosten &minus; Budget</span>
-      </button>
-    </section>
+        <!-- 3-Konten-Übersicht (Copilot KPI Strip) -->
+        <section class="accounts-strip" aria-label="3-Konten-Übersicht">
+          <button type="button" class="account-cell" data-jump-view="view-fixed">
+            <span class="account-label"><span class="acc-dot acc-dot-blue"></span>Gehaltskonto &middot; noch offen</span>
+            <span id="accSalaryRemaining" class="account-value">0,00 &euro;</span>
+            <span id="accSalaryMeta" class="account-meta">Gesamt 0,00 &euro; &middot; 0/0 bezahlt</span>
+          </button>
 
-    <!-- Schlichte Arbeitsblatt-Tabs -->
-    <nav class="sheet-tabs" aria-label="Ansicht wechseln">
-      <button type="button" id="tabFixedBtn" class="sheet-tab active" data-target-view="view-fixed" aria-current="page">
-        Gehaltskonto (Fixkosten)
-        <span id="tabFixedOpenBadge" class="tab-count"></span>
-      </button>
-      <button type="button" id="tabBudgetBtn" class="sheet-tab" data-target-view="view-budget">
-        Ausgabenkonto (Budget)
-        <span id="variableCountBadge" class="tab-count"></span>
-      </button>
-    </nav>
+          <button type="button" class="account-cell" data-jump-view="view-budget">
+            <span class="account-label"><span class="acc-dot acc-dot-green"></span>Ausgabenkonto &middot; noch frei</span>
+            <span id="accBudgetRemaining" class="account-value positive">0,00 &euro;</span>
+            <span id="accBudgetMeta" class="account-meta">von 500,00 &euro; Monatsbudget</span>
+          </button>
+
+          <button type="button" class="account-cell" id="openScalableSettingsBtn">
+            <span class="account-label"><span class="acc-dot acc-dot-indigo"></span>Scalable &middot; Überweisung</span>
+            <span id="accScalableTransfer" class="account-value">0,00 &euro;</span>
+            <span id="accScalableMeta" class="account-meta">Gehalt &minus; Fixkosten &minus; Budget</span>
+          </button>
+        </section>
 
     <!-- TAB 1 (Standard): GEHALTSKONTO / FIXKOSTEN -->
     <div id="view-fixed" class="spa-view" aria-hidden="false" tabindex="-1">
@@ -185,6 +219,43 @@
         </div>
       </section>
     </div>
+      </div>
+    </main>
+
+    <!-- iPhone / Mobile Bottom Tab Bar (Finanzfluss Copilot iOS Style) -->
+    <nav class="bottom-nav" aria-label="Mobile Navigation">
+      <button type="button" class="bottom-nav-item active" data-target-view="view-fixed" aria-current="page">
+        <span class="bottom-icon-wrap">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="4" width="18" height="16" rx="2"/>
+            <line x1="3" y1="10" x2="21" y2="10"/>
+            <line x1="7" y1="15" x2="11" y2="15"/>
+          </svg>
+          <span class="bottom-badge" data-fixed-open-count></span>
+        </span>
+        <span>Gehaltskonto</span>
+      </button>
+
+      <button type="button" class="bottom-nav-item" data-target-view="view-budget">
+        <span class="bottom-icon-wrap">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 12V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5z"/>
+            <path d="M16 12h5"/>
+          </svg>
+        </span>
+        <span>Ausgabenkonto</span>
+      </button>
+
+      <button type="button" class="bottom-nav-item" data-open-tools>
+        <span class="bottom-icon-wrap">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+        </span>
+        <span>Einstellungen</span>
+      </button>
+    </nav>
   </div>
 
   <!-- MODAL 0: Einstellungen & Werkzeuge -->
